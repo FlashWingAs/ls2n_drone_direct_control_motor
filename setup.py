@@ -21,6 +21,8 @@ setup(
     entry_points={
         'console_scripts': [
             'direct_motor_control = ls2n_drone_direct_motor_control.direct_motor_control:main'
+            'talker = ls2n_drone_direct_motor_control.publisher_member_function:main',
+            'listener = ls2n_drone_direct_motor_control.subscriber_member_function:main',
         ],
     },
 )
