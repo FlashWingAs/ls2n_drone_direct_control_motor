@@ -2,9 +2,7 @@ import rclpy
 from rclpy.node import Node
 
 from std_msgs.msg import String
-from std_msgs.msg import Float64MultiArray
 from ls2n_interfaces.msg import (
-	KeepAlive,
 	MotorControlSetPoint,
 )
 
