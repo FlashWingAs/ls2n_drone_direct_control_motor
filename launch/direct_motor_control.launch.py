@@ -5,7 +5,8 @@ def generate_launch_description():
     return LaunchDescription(
         [
             Node(
-                package="ls2n_drone_control_center",
+                package="ls2n_drone_direct_motor_control",
+                executable="direct_motor_control"
             )
         ]
     )
