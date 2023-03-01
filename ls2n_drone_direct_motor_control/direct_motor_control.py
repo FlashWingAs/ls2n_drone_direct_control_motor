@@ -25,15 +25,8 @@ from ls2n_drone_bridge.common import (
     FullState,
     qos_profile_sensor_data,
 )
-from ls2n_drone_bridge.controllers import (
-    AccelerationController,
-    AttitudeThrustController,
-    Controller,
-    ControllerType,
-    PositionController,
-    RatesThrustController,
-    VelocityController,
-    MotorController,
+from ls2n_drone_direct_motor_control.custom_controllers import (
+    Geometric_Controller
 )
 from ls2n_drone_bridge.drone_bridge import (
     Status
@@ -74,47 +67,76 @@ class ControlCenter(Node):
             self.status_update_callback,
             qos_profile_sensor_data,
         )
+
+        self.status_timer = self.create_timer(0.01, self.status_publisher)
+
+        self.status_publisher = self.create_publisher(
+            DroneStatus,
+            "Status",
+            qos_profile_sensor_data,
+        )
+
         self.create_subscription(
             Odometry,
             "EKF/odom",
             self.odom_update_callback,
             qos_profile_sensor_data,
         )
-        self.status_timer = self.create_timer(0.01, self.publish_status)
-        # MOCAP subscription
+        
         # Set points
         self.direct_motor_control_publisher = self.create_publisher(
             MotorControlSetPoint, "MotorcontrolSetPoint", qos_profile_sensor_data
         )
-
-        self.create_subscription(
-            JointTrajectory,
-            "Trajectory",
-            self.trajectory_callback,
-            qos_profile_sensor_data,
-        )
         
         # subscribers related to disturbances observation
-        self.create_subscription(
-            Vector3Stamped,
-            "Observer/DisturbancesWorld",
-            self.disturbances_callback,
-            qos_profile_sensor_data,
-        )
+        # self.create_subscription(
+        #     Vector3Stamped,
+        #     "Observer/DisturbancesWorld",
+        #     self.disturbances_callback,
+        #     qos_profile_sensor_data,
+        #)
         self.main_loop_timer = self.create_timer(
             0.01, self.main_loop
             )
-        self.recovery_timer = self.create_timer(
-            10.0, self.recover_from_emergency
-        )
-        self.recovery_timer.cancel()
-        self.status.lastAlive = self.get_clock().now()
 
     status = Status()
+    odometry = FullState()
+    controller = None
   
+    # Callbacks
+
     def status_update_callback(self,rcvd_msg):
         self.status.status = rcvd_msg.status
+        if self.status.status == DroneStatus.ARMED:
+            self.controller = Geometric_Controller(self)
+            self.status.status = DroneStatus.FLYING
+            self.status_publisher()
+
+    def odom_update_callback(self, msg):
+        self.odometry = msg
+        if self.controller is not None:
+            control = self.controller.do_control()
+            self.direct_motor_control_publisher(control)
         
+
+    # Publishers
+
+    def status_publisher(self):
+        msg = DroneStatus()
+        msg.status = self.status.status
+        self.status_publisher.publish(msg)
+
+    def direct_motor_control_publisher(self, motors_set_points):
+        if len(motors_set_points)<12:
+            for i in range(12 - len(motors_set_points)):
+                motors_set_points.append(0.0)
+        msg = MotorControlSetPoint()
+        msg.data = motors_set_points
+        self.direct_motor_control_publisher.publish(msg)
+
+    def main_loop(self):
+        pass
+
 
 def main(args=None):
     rclpy.init(args=args)
