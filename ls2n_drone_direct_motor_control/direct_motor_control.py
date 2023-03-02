@@ -63,7 +63,7 @@ class ControlCenter(Node):
         # Bridge feedback
         self.create_subscription(
             DroneStatus,
-            "Status",
+            "Drone1/Status",
             self.status_update_callback,
             qos_profile_sensor_data,
         )
@@ -72,20 +72,20 @@ class ControlCenter(Node):
 
         self.status_publisher = self.create_publisher(
             DroneStatus,
-            "Status",
+            "Drone1/Status",
             qos_profile_sensor_data,
         )
 
         self.create_subscription(
             Odometry,
-            "EKF/odom",
+            "Drone1/EKF/odom",
             self.odom_update_callback,
             qos_profile_sensor_data,
         )
         
         # Set points
         self.direct_motor_control_publisher = self.create_publisher(
-            MotorControlSetPoint, "MotorcontrolSetPoint", qos_profile_sensor_data
+            MotorControlSetPoint, "Drone1/MotorControlSetPoint", qos_profile_sensor_data
         )
         
         # subscribers related to disturbances observation
