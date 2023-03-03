@@ -33,5 +33,5 @@ class Geometric_Controller(Custom_Controller):
     k_d_ang = 0
 
     def do_control(self):
-        desired_motor_speed = [0.5, 0.0001, 0.5, 0.0001, 0.0001, 0.0001]
+        desired_motor_speed = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
         return desired_motor_speed
