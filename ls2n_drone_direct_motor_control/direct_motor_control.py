@@ -1,5 +1,6 @@
 import importlib
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 import os
 import subprocess
 import signal
@@ -30,6 +31,10 @@ from ls2n_drone_bridge.common import (
 from ls2n_drone_direct_motor_control.custom_controllers import (
     Geometric_Controller
 )
+from ls2n_drone_direct_motor_control.custom_common import (
+    Custom_Controller_Type,
+    Custom_Pose,
+)
 from ls2n_drone_bridge.drone_bridge import (
     Status
 )
@@ -38,12 +43,22 @@ class ControlCenter(Node):
     def __init__(self):
         super().__init__("direct_motor_control")
         parameters = [
-            ["mass", 1.0, ParameterType.PARAMETER_DOUBLE, "Drone mass"],
+            [
+                "mass",
+                1.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Drone mass"],
             [
                 "take_off_height",
                 1.0,
                 ParameterType.PARAMETER_DOUBLE,
                 "Height for automatic take off",
+            ],
+            [
+                "controller",
+                1,
+                ParameterType.PARAMETER_INTEGER,
+                "Custom controller selection"
             ],
         ]
         for parameter in parameters:
@@ -116,8 +131,16 @@ class ControlCenter(Node):
             )
 
     status = Status()
-    odometry = FullState()
+    odom = FullState()
+    real_pose = Custom_Pose()
+    desired_pose = Custom_Pose()
+    desired_pose.position = np.array([0.0, 0.0, 2.0])
     controller = None
+    sec = 0
+    nanosec = 0.0
+    time_prev = 0.0
+    time = 0.0
+    step_size = 0.0
   
     # Callbacks
 
@@ -128,11 +151,10 @@ class ControlCenter(Node):
         if (self.status.status == DroneStatus.IDLE and self.experiment_started):
             self.experiment_started = False
 
-    def odom_update_callback(self, msg):
-        self.odometry = msg
-        if (self.controller is not None) and self.experiment_started:
-            control = self.controller.do_control()
-            self.direct_motor_control_transfer(control)
+    def odom_update_callback(self, odom):
+        self.odom = odom.data
+        self.controller_go_brrr()
+        
         
 
     # Publishers
@@ -143,6 +165,9 @@ class ControlCenter(Node):
         self.status_publisher.publish(msg)
 
     def direct_motor_control_transfer(self, motors_set_points):
+        for i in range(len(motors_set_points)):
+            abs = self.rad2abs(motors_set_points[i])
+            motors_set_points[i] = abs
         if len(motors_set_points)<12:
             for i in range(12 - len(motors_set_points)):
                 motors_set_points.append(0.0)
@@ -196,9 +221,42 @@ class ControlCenter(Node):
     # State machine
 
 
+    # Translations
+
+    def odom2state(self, odometry):
+        real_state = Custom_Pose()
+        real_state.position = odometry.pose.pose.position
+        real_state.velocity = odometry.twist.twist.linear
+        real_state.rotation = odometry.pose.pose.orientation
+        real_state.rot_velocity = odometry.twist.twist.angular
+        real_state.orientation_matrix = R.from_euler('ZYX', real_state.rotation).as_matrix
+        return real_state
+    
+    def rad2abs(rad):
+        abs = rad
+        return abs
+
+    # Main loop
 
     def main_loop(self):
         pass
+
+    # Special actions
+
+    def controller_go_brrr(self):
+        self.sec = self.odom.header.stamp.sec
+        self.nanosec = self.odom.header.stamp.nanosec
+        self.time_prev = self.time
+        self.time = self.sec + self.nanosec
+        self.step_size = self.time - self.time_prev
+
+        self.real_pose = self.odom2state(self.odom)
+        if (self.controller is not None) and self.experiment_started:
+            if self.controller.type is Custom_Controller_Type.TEST:
+                control = self.controller.do_control()
+            else: 
+                control = self.controller.do_control(self.real_pose, self.desired_pose, self.step_size)
+            self.direct_motor_control_transfer(control)
 
 
 def main(args=None):
