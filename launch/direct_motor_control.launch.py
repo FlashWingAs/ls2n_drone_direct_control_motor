@@ -13,7 +13,9 @@ def generate_launch_description():
             ),
             Node(
                 package="ls2n_drone_direct_motor_control",
-                executable="direct_motor_control"
+                executable="direct_motor_control",
+                output="screen",
+                namespace=LaunchConfiguration("drone_namespace"),
             )
         ]
     )

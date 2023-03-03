@@ -83,8 +83,6 @@ class ControlCenter(Node):
             qos_profile_sensor_data,
         )
 
-        self.status_timer = self.create_timer(0.01, self.status_publisher)
-
         self.status_publisher = self.create_publisher(
             DroneStatus,
             "Status",
@@ -134,22 +132,22 @@ class ControlCenter(Node):
         self.odometry = msg
         if (self.controller is not None) and self.experiment_started:
             control = self.controller.do_control()
-            self.direct_motor_control_publisher(control)
+            self.direct_motor_control_transfer(control)
         
 
     # Publishers
 
-    def status_publisher(self):
+    def status_update(self):
         msg = DroneStatus()
         msg.status = self.status.status
         self.status_publisher.publish(msg)
 
-    def direct_motor_control_publisher(self, motors_set_points):
+    def direct_motor_control_transfer(self, motors_set_points):
         if len(motors_set_points)<12:
             for i in range(12 - len(motors_set_points)):
                 motors_set_points.append(0.0)
         msg = MotorControlSetPoint()
-        msg.data = motors_set_points
+        msg.motor_velocity = motors_set_points
         self.direct_motor_control_publisher.publish(msg)
 
     # Services
@@ -167,14 +165,37 @@ class ControlCenter(Node):
 
     def start_experiment(self, request, response):
         if not self.experiment_started:
-            self.controller = Geometric_Controller()
-            self.status.status = DroneStatus.FLYING
-            self.experiment_started = True
+            if self.status.status == DroneStatus.ARMED:
+                self.controller = Geometric_Controller(self)
+                self.status.status = DroneStatus.FLYING
+                self.status_update()
+                self.experiment_started = True
+            else:
+                self.get_logger().info(
+                    "Drone not armed. Arm the drone then start again."
+                )
         else:
             self.get_logger().info(
                 "Experiment already started. Stop experiment to reset."
             )
         return response
+    
+    def stop_experiment(self, request, response):
+        if self.experiment_started:
+            self.get_logger().info("Stopping drone")
+            self.controller = None
+            self.status.status = DroneStatus.IDLE
+            self.status_update()
+            self.experiment_started = False
+        else:
+            self.get_logger().info(
+                "Experiment already stopped."
+            )
+        return response
+    
+    # State machine
+
+
 
     def main_loop(self):
         pass
@@ -186,7 +207,7 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        print("Shutting down drone bridge")
+        print("Shutting down control center")
     finally:
         node.destroy_node()
         rclpy.try_shutdown()
