@@ -144,7 +144,7 @@ class ControlCenter(Node):
   
     # Callbacks
 
-    def status_update_callback(self,rcvd_msg):
+    def status_update_callback(self, rcvd_msg):
         self.status.status = rcvd_msg.status
         if (self.status.status == DroneStatus.FLYING and not self.experiment_started):
             self.experiment_started = True
@@ -152,7 +152,7 @@ class ControlCenter(Node):
             self.experiment_started = False
 
     def odom_update_callback(self, odom):
-        self.odom = odom.data
+        self.odom = odom
         self.controller_go_brrr()
         
         
@@ -165,14 +165,18 @@ class ControlCenter(Node):
         self.status_publisher.publish(msg)
 
     def direct_motor_control_transfer(self, motors_set_points):
+        to_send = np.zeros(12)
+        max = 0
         for i in range(len(motors_set_points)):
             abs = self.rad2abs(motors_set_points[i])
-            motors_set_points[i] = abs
-        if len(motors_set_points)<12:
-            for i in range(12 - len(motors_set_points)):
-                motors_set_points.append(0.0)
+            if abs > max:
+                max = abs
+            to_send[i] = abs
+        if max > 1:
+            to_send = to_send / max
+        to_send_L = to_send.tolist()
         msg = MotorControlSetPoint()
-        msg.motor_velocity = motors_set_points
+        msg.motor_velocity = to_send_L
         self.direct_motor_control_publisher.publish(msg)
 
     # Services
@@ -225,14 +229,22 @@ class ControlCenter(Node):
 
     def odom2state(self, odometry):
         real_state = Custom_Pose()
-        real_state.position = odometry.pose.pose.position
-        real_state.velocity = odometry.twist.twist.linear
-        real_state.rotation = odometry.pose.pose.orientation
-        real_state.rot_velocity = odometry.twist.twist.angular
-        real_state.orientation_matrix = R.from_euler('ZYX', real_state.rotation).as_matrix
+        real_state.position[0] = odometry.pose.pose.position.x
+        real_state.position[1] = odometry.pose.pose.position.y
+        real_state.position[2] = odometry.pose.pose.position.z
+        real_state.velocity[0] = odometry.twist.twist.linear.x
+        real_state.velocity[1] = odometry.twist.twist.linear.y
+        real_state.velocity[2] = odometry.twist.twist.linear.z
+        real_state.rotation[0] = odometry.pose.pose.orientation.x
+        real_state.rotation[1] = odometry.pose.pose.orientation.y
+        real_state.rotation[2] = odometry.pose.pose.orientation.z
+        real_state.rot_velocity[0] = odometry.twist.twist.angular.x
+        real_state.rot_velocity[1] = odometry.twist.twist.angular.y
+        real_state.rot_velocity[2] = odometry.twist.twist.angular.z
+        real_state.orientation_matrix = R.from_euler('ZYX', real_state.rotation).as_matrix()
         return real_state
     
-    def rad2abs(rad):
+    def rad2abs(self, rad):
         abs = rad
         return abs
 
