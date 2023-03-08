@@ -110,6 +110,13 @@ class ControlCenter(Node):
             self.odom_update_callback,
             qos_profile_sensor_data,
         )
+
+        self.create_subscription(
+            JointTrajectory,
+            "Trajectory",
+            self.trajectory_callback,
+            qos_profile_sensor_data,
+        )
         
         # Set points
         self.direct_motor_control_publisher = self.create_publisher(
@@ -133,8 +140,7 @@ class ControlCenter(Node):
     status = Status()
     odom = FullState()
     real_pose = Custom_Pose()
-    desired_pose = Custom_Pose()
-    desired_pose.position = np.array([0.0, 0.0, 2.0])
+    respond2trajectory = False
     controller = None
     sec = 0
     nanosec = 0.0
@@ -155,7 +161,12 @@ class ControlCenter(Node):
         self.odom = odom
         self.controller_go_brrr()
         
-        
+    def trajectory_callback(self, msg):
+        if self.controller is not None:
+            if self.controller.type == Custom_Controller_Type.GEOMETRIC:
+                if self.status.status == DroneStatus.FLYING and self.experiment_started:
+                    if self.respond2trajectory: 
+                        self.controller.update_setpoints(msg)
 
     # Publishers
 
@@ -241,11 +252,12 @@ class ControlCenter(Node):
         real_state.rot_velocity[0] = odometry.twist.twist.angular.x
         real_state.rot_velocity[1] = odometry.twist.twist.angular.y
         real_state.rot_velocity[2] = odometry.twist.twist.angular.z
-        real_state.orientation_matrix = R.from_euler('ZYX', real_state.rotation).as_matrix()
+        real_state.rotation_matrix = R.from_euler('ZYX', real_state.rotation).as_matrix()
+        real_state.rotation_matrix_derivative = R.from_euler('ZYX', real_state.rot_velocity).as_matrix()
         return real_state
     
     def rad2abs(self, rad):
-        abs = rad
+        abs = 0.0005*rad
         return abs
 
     # Main loop
@@ -267,7 +279,7 @@ class ControlCenter(Node):
             if self.controller.type is Custom_Controller_Type.TEST:
                 control = self.controller.do_control()
             else: 
-                control = self.controller.do_control(self.real_pose, self.desired_pose, self.step_size)
+                control = self.controller.do_control(self.real_pose, self.step_size, self.respond2trajectory)
             self.direct_motor_control_transfer(control)
 
 

@@ -13,7 +13,8 @@ class Custom_Pose:
     rotation = np.array([0.0, 0.0, 0.0])
     rot_velocity = np.array([0.0, 0.0, 0.0])
     rot_acceleration = np.array([0.0, 0.0, 0.0])
-    orientation_matrix = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    rotation_matrix = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    rotation_matrix_derivative = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
 class Custom_Controller_Type(IntEnum):
     NONE = (0,)
