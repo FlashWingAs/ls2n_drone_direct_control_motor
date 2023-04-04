@@ -252,12 +252,12 @@ class ControlCenter(Node):
         real_state.rot_velocity[0] = odometry.twist.twist.angular.x
         real_state.rot_velocity[1] = odometry.twist.twist.angular.y
         real_state.rot_velocity[2] = odometry.twist.twist.angular.z
-        real_state.rotation_matrix = R.from_euler('ZYX', real_state.rotation).as_matrix()
-        real_state.rotation_matrix_derivative = R.from_euler('ZYX', real_state.rot_velocity).as_matrix()
+        real_state.rotation_matrix = R.from_rotvec(real_state.rotation).as_matrix()
+        real_state.rotation_matrix_derivative = R.from_rotvec(real_state.rot_velocity).as_matrix()
         return real_state
     
     def rad2abs(self, rad):
-        abs = 0.0005*rad
+        abs = 0.01*rad
         return abs
 
     # Main loop
