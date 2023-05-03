@@ -92,9 +92,15 @@ class Test_Controller(Custom_Controller):
         super().__init__(node)
         self.type = Custom_Controller_Type.TEST
 
+    def init_controller(self):
+        pass
+
     def do_control(self):
         desired_motor_speed = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
         return desired_motor_speed
+    
+    def debug_controller_desired_pose(self):
+        return self.desired_pose
 
 class Geometric_Controller(Custom_Controller):
 
@@ -104,33 +110,38 @@ class Geometric_Controller(Custom_Controller):
     
     # Geometry
     pi = np.pi
-    Lx = 0.17
+    Lx = 0.686/2
     alpha = pi/3
     g = 9.81
-    m_tot = 1
-    I = np.diag(np.array([1, 1, 1]))
+    m_tot = 3.3981
+    I1 = 0.1
+    I2 = I1
+    I3 = 0.15
+    I = np.diag(np.array([I1, I2, I3]))
     I_inv = np.linalg.pinv(I)
     lambda_arms = np.array([-pi/2, pi/2, pi/6, -5*pi/6, -pi/6, 5*pi/6])
     alpha_arms = alpha*np.array([-1, 1, -1, 1, 1, -1])
     clock = np.array([1, -1, 1, -1, -1, 1]) # Clockwise or Anti-clockwise
 
-    # Force and drag coefficient of the propeller
-    kf = 0.002
-    kd = 0.0002
-    
+    # Force and drag coefficient of the propeller -> replaced by computing control thrust-wise and using d as kd/kt
+    # kf = 0.002
+    # kd = 0.0002
+    d = 0.06
+
     # PID coef
-    k_p_pos = 0.001
-    k_i_pos = 0
-    k_d_pos = 0
-    k_p_ang = 0.000000001
-    k_i_ang = 0
-    k_d_ang = 0
-    Kp1 = k_d_pos*np.eye(3)
-    Kp2 = k_p_pos*np.eye(3)
-    Kp3 = k_i_pos*np.eye(3)
-    Kr1 = k_d_ang*np.eye(3)
-    Kr2 = k_p_ang*np.eye(3)
-    Kr3 = k_i_ang*np.eye(3)
+    k_p_pos = 29*I3 #10.0
+    k_i_pos = 30*I3 #0.5
+    k_d_pos = 10*I3 #0.0001
+    k_p_ang = k_p_pos #0.01
+    k_i_ang = k_i_pos #0.001
+    k_d_ang = k_d_pos #0.0
+    standard_geometric_controller_parameters = [k_p_pos, k_i_pos, k_d_pos, k_p_ang, k_i_ang, k_d_ang]
+    Kpp = np.eye(3)
+    Kpi = np.eye(3)
+    Kpd = np.eye(3)
+    Krp = np.eye(3)
+    Kri = np.eye(3)
+    Krd = np.eye(3)
 
     # Errors init
     e_pos_old = np.zeros((3,1))
@@ -161,38 +172,48 @@ class Geometric_Controller(Custom_Controller):
         B_P_Pi[i, :, :] = np.matmul(temp_lambda, np.transpose([np.array([Lx, 0, 0])]))
         B_R_Pi[i, :, :] = np.matmul(temp_lambda, temp_alpha)
         F[:, [i]] = np.matmul(np.reshape(B_R_Pi[[i], :, :], (3, 3)), 
-                                    np.transpose([np.array([0, 0, kf])]))
+                                    np.transpose([np.array([0, 0, 1])]))
         H[:, [i]] = np.cross(np.reshape(B_P_Pi[[i], :, :], (3, 1)),
-                                    np.transpose(np.matmul(np.reshape(B_R_Pi[[i], :, :], (3, 3)), np.transpose(np.array([0, 0, kf])))),
+                                    np.transpose(np.matmul(np.reshape(B_R_Pi[[i], :, :], (3, 3)), np.transpose(np.array([0, 0, 1])))),
                                     axis=0) + np.reshape(clock[i]*np.matmul(np.reshape(B_R_Pi[[i], :, :], (3, 3)),
-                                                        np.transpose(np.array([0, 0, kd]))),(3,1))
+                                                        np.transpose(np.array([0, 0, d]))),(3,1))
 
     Jb = np.concatenate((F, H), axis=0)
+
+    def init_controller(self, parameters= standard_geometric_controller_parameters):
+        self.Kpp = parameters[0]*np.eye(3)
+        self.Kpi = parameters[1]*np.eye(3)
+        self.Kpd = parameters[2]*np.eye(3)
+        self.Krp = parameters[3]*np.eye(3)
+        self.Kri = parameters[4]*np.eye(3)
+        self.Krd = parameters[5]*np.eye(3)
 
     def do_control(self, real_pose : Custom_Pose, step_size : float, do_trajectory : bool):
         if not do_trajectory:
             self.desired_pose = Custom_Pose()
-            self.desired_pose.position = [0, 0, 2]
+            self.desired_pose.position = np.array([0.0, 0.0, 1.5]) #fixed set point of 1.5m altitude
 
         # updates
 
-        self.D_e_pos = (np.reshape(self.desired_pose.position, (3, 1)) - self.e_pos)/step_size
-        self.I_e_pos = self.I_e_pos + np.reshape(self.desired_pose.position, (3, 1))*step_size
+        # self.D_e_pos = (np.reshape(self.desired_pose.position, (3, 1)) - self.e_pos)/step_size
+        # self.I_e_pos = self.I_e_pos + np.reshape(self.desired_pose.position, (3, 1))*step_size
+        # self.e_pos_old = self.e_pos
+        # self.e_pos = np.reshape(real_pose.position, (3, 1)) - np.reshape(self.desired_pose.position, (3, 1))
+
+        
         self.e_pos_old = self.e_pos
         self.e_pos = np.reshape(real_pose.position, (3, 1)) - np.reshape(self.desired_pose.position, (3, 1))
-
-
-        #self.D_e_ang = (np.reshape(self.desired_pose.rotation, (3, 1)) - self.e_ang)/step_size
+        self.I_e_pos = self.I_e_pos + self.e_pos*step_size
+        self.D_e_pos = (self.e_pos-self.e_pos_old)/step_size
+  
+        self.e_ang_old = self.e_ang
+        e_ang = 1/2*np.reshape(R.from_matrix(np.matmul(np.transpose(self.desired_pose.rotation_matrix), real_pose.rotation_matrix) - \
+                                              np.matmul(np.transpose(real_pose.rotation_matrix), self.desired_pose.rotation_matrix)).as_rotvec(), (3, 1))
+        self.I_e_ang = self.I_e_ang + e_ang*step_size
         self.D_e_ang = np.reshape(real_pose.rot_velocity, (3, 1)) - \
             np.matmul(np.matmul(np.transpose(real_pose.rotation_matrix), self.desired_pose.rotation_matrix),
                       np.reshape(R.from_matrix(np.matmul(np.transpose(self.desired_pose.rotation_matrix),
                                                                self.desired_pose.rotation_matrix_derivative)).as_rotvec(), (3, 1)))
-        temp_e_ang = 1/2*np.reshape(R.from_matrix(np.matmul(np.transpose(self.desired_pose.rotation_matrix), real_pose.rotation_matrix) - \
-                                              np.matmul(np.transpose(real_pose.rotation_matrix), self.desired_pose.rotation_matrix)).as_rotvec(), (3, 1))
-        self.I_e_ang = self.I_e_ang + temp_e_ang*step_size
-        self.e_ang_old = self.e_ang
-        self.e_ang = temp_e_ang
-        # self.e_ang = np.reshape(real_pose.rotation, (3, 1)) - np.reshape(self.desired_pose.rotation, (3, 1))
         
 
 
@@ -201,8 +222,8 @@ class Geometric_Controller(Custom_Controller):
         DD_p_d = np.reshape(self.desired_pose.acceleration, (3, 1))
         DD_r_d = np.reshape(self.desired_pose.rot_acceleration, (3, 1))
 
-        Vp = DD_p_d - np.matmul(self.Kp1, self.D_e_pos) - np.matmul(self.Kp2, self.e_pos) - np.matmul(self.Kp3, self.I_e_pos)
-        Vr = DD_r_d - np.matmul(self.Kr1, self.D_e_ang) - np.matmul(self.Kr2, self.e_ang) - np.matmul(self.Kr3, self.I_e_ang)
+        Vp = DD_p_d - np.matmul(self.Kpd, self.D_e_pos) - np.matmul(self.Kpp, self.e_pos) - np.matmul(self.Kpi, self.I_e_pos)
+        Vr = DD_r_d - np.matmul(self.Krd, self.D_e_ang) - np.matmul(self.Krp, self.e_ang) - np.matmul(self.Kri, self.I_e_ang)
         v = np.concatenate((Vp, Vr), axis=0)
 
         # Calc J
@@ -220,6 +241,9 @@ class Geometric_Controller(Custom_Controller):
         for i in range(6):
             if u[i]<0:
                 u[i] = 0
-        desired_motor_speed = np.sqrt(u)
+        desired_motor_thrust = u
 
-        return desired_motor_speed
+        return desired_motor_thrust
+    
+    def debug_controller_desired_pose(self):
+        return self.desired_pose

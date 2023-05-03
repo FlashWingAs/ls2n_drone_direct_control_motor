@@ -12,6 +12,7 @@ from ls2n_interfaces.msg import (
     RatesThrustSetPoint,
     KeepAlive,
     MotorControlSetPoint,
+    CustomDebug,
 )
 from ls2n_interfaces.srv import DroneRequest, OnboardApp
 from nav_msgs.msg import Odometry
@@ -29,6 +30,7 @@ from ls2n_drone_bridge.common import (
     qos_profile_sensor_data,
 )
 from ls2n_drone_direct_motor_control.custom_controllers import (
+    Test_Controller,
     Geometric_Controller
 )
 from ls2n_drone_direct_motor_control.custom_common import (
@@ -55,10 +57,52 @@ class ControlCenter(Node):
                 "Height for automatic take off",
             ],
             [
-                "controller",
-                1,
+                "select_controller",
+                2,
                 ParameterType.PARAMETER_INTEGER,
                 "Custom controller selection"
+            ],
+            [
+                "config_switch",
+                False,
+                ParameterType.PARAMETER_BOOL,
+                "Switch if PID config is default or handpicked"
+            ],
+            [
+                "kp_trans_geom",
+                1.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric translation controller proportionnal gain"
+            ],
+            [
+                "ki_trans_geom",
+                0.1,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric translation controller integral gain"
+            ],
+            [
+                "kd_trans_geom",
+                0.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric translation controller derivative gain"
+            ],
+            [
+                "kp_rot_geom",
+                0.5,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric rotational controller proportionnal gain"
+            ],
+            [
+                "ki_rot_geom",
+                0.05,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric rotational controller integral gain"
+            ],
+            [
+                "kd_rot_geom",
+                0.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric rotational controller derivative gain"
             ],
         ]
         for parameter in parameters:
@@ -77,11 +121,7 @@ class ControlCenter(Node):
 
         self.get_logger().info("Starting control center node")
 
-        self.create_service(
-            Empty,
-            "SpinMotors",
-            self.spin_motors,
-        )
+        self.create_service(Empty, "SpinMotors", self.spin_motors)
         self.create_service(Empty, "StartExperiment", self.start_experiment)
         self.create_service(Empty, "StopExperiment", self.stop_experiment)
         self.drone_request_client = self.create_client(
@@ -124,6 +164,12 @@ class ControlCenter(Node):
             "MotorControlSetPoint",
             qos_profile_sensor_data
         )
+
+        self.position_tracking_publisher = self.create_publisher(
+            CustomDebug,
+            "Posetracking",
+            qos_profile_sensor_data
+        )
         
         # subscribers related to disturbances observation
         # self.create_subscription(
@@ -147,6 +193,8 @@ class ControlCenter(Node):
     time_prev = 0.0
     time = 0.0
     step_size = 0.0
+    step_size_old = 0.0
+    geometric_contoller_parameters = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   
     # Callbacks
 
@@ -177,11 +225,13 @@ class ControlCenter(Node):
 
     def direct_motor_control_transfer(self, motors_set_points):
         to_send = np.zeros(12)
-        max = 0
+        max = 0.0
         for i in range(len(motors_set_points)):
-            abs = self.rad2abs(motors_set_points[i])
+            abs = self.thrust2abs(motors_set_points[i])
             if abs > max:
                 max = abs
+            if abs < 0.0:
+                abs = 0
             to_send[i] = abs
         if max > 1:
             to_send = to_send / max
@@ -189,6 +239,21 @@ class ControlCenter(Node):
         msg = MotorControlSetPoint()
         msg.motor_velocity = to_send_L
         self.direct_motor_control_publisher.publish(msg)
+
+    def position_tracking(self, CurrentPose, Go2Pose):
+        msg = CustomDebug()
+        msg.current_position = CurrentPose.position.tolist()
+        msg.current_rotation_vec = CurrentPose.rotation.tolist()
+        msg.goal_position = Go2Pose.position.tolist()
+        msg.goal_rotation_vec = Go2Pose.rotation.tolist()
+        msg.error_position = (Go2Pose.position - CurrentPose.position).tolist()
+        msg.error_rotation_vec = (Go2Pose.rotation - CurrentPose.rotation).tolist()
+        msg.bx_in_r = CurrentPose.rotation_matrix[:,0].tolist()
+        msg.by_in_r = CurrentPose.rotation_matrix[:,1].tolist()
+        msg.bz_in_r = CurrentPose.rotation_matrix[:,2].tolist()
+
+        msg.step_size = float(self.step_size)
+        self.position_tracking_publisher.publish(msg)
 
     # Services
 
@@ -206,7 +271,14 @@ class ControlCenter(Node):
     def start_experiment(self, request, response):
         if not self.experiment_started:
             if self.status.status == DroneStatus.ARMED:
-                self.controller = Geometric_Controller(self)
+                self.contoller_selection(self.select_controller())
+                if self.controller.type == Custom_Controller_Type.GEOMETRIC:
+                    self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom()]
+                if self.config_switch():
+                    self.controller.init_controller(parameters = self.geometric_contoller_parameters)
+                if self.controller.type == Custom_Controller_Type.TEST:
+                    pass
                 self.status.status = DroneStatus.FLYING
                 self.status_update()
                 self.experiment_started = True
@@ -235,6 +307,14 @@ class ControlCenter(Node):
     
     # State machine
 
+    def contoller_selection(self, selection):
+        match selection:
+            case 1:
+                self.controller = Test_Controller(self)
+                self.get_logger().info("Experiment starting with TEST controller")
+            case 2:
+                self.controller = Geometric_Controller(self)
+                self.get_logger().info("Experiment starting with GEOMETRIC controller")
 
     # Translations
 
@@ -257,7 +337,11 @@ class ControlCenter(Node):
         return real_state
     
     def rad2abs(self, rad):
-        abs = 0.01*rad
+        abs = (0.002*rad-66.38)/222.0
+        return abs
+
+    def thrust2abs(self, thrust: float) -> float:
+        abs = thrust/222.0
         return abs
 
     # Main loop
@@ -271,16 +355,24 @@ class ControlCenter(Node):
         self.sec = self.odom.header.stamp.sec
         self.nanosec = self.odom.header.stamp.nanosec
         self.time_prev = self.time
-        self.time = self.sec + self.nanosec
+        self.time = self.sec + self.nanosec*10**(-9)
+        self.step_size_old = self.step_size
         self.step_size = self.time - self.time_prev
+        if self.step_size < 0:
+            self.step_size = self.step_size_old
 
         self.real_pose = self.odom2state(self.odom)
         if (self.controller is not None) and self.experiment_started:
+            # Do control
             if self.controller.type is Custom_Controller_Type.TEST:
                 control = self.controller.do_control()
             else: 
                 control = self.controller.do_control(self.real_pose, self.step_size, self.respond2trajectory)
             self.direct_motor_control_transfer(control)
+
+            # Debug
+            desired_pose = self.controller.debug_controller_desired_pose()
+            self.position_tracking(self.real_pose, desired_pose)
 
 
 def main(args=None):
