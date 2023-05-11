@@ -20,6 +20,7 @@ from trajectory_msgs.msg import JointTrajectory
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from rcl_interfaces.msg import SetParametersResult
 
 from std_srvs.srv import Empty
 
@@ -104,6 +105,36 @@ class ControlCenter(Node):
                 ParameterType.PARAMETER_DOUBLE,
                 "Geometric rotational controller derivative gain"
             ],
+            [
+                "yaw_p_multiplier",
+                1.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric yaw controller derivative multiplier"
+            ],
+            [
+                "yaw_i_multiplier",
+                1.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric yaw controller derivative multiplier"
+            ],
+            [
+                "yaw_d_multiplier",
+                1.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Geometric yaw controller derivative multiplier"
+            ],
+            [
+                "d_position",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Desired position"
+            ],
+            [
+                "d_rot_euler",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Desired orientation expressed as Euler angles"
+            ],
         ]
         for parameter in parameters:
             self.declare_parameter(
@@ -182,10 +213,14 @@ class ControlCenter(Node):
         self.main_loop_timer = self.create_timer(
             0.01, self.main_loop
             )
+        
+        self.add_on_set_parameters_callback(self.parameters_callback)
 
     status = Status()
     odom = FullState()
     real_pose = Custom_Pose()
+    desired_pose = Custom_Pose()
+    desired_pose.position = np.array([0.0, 0.0, 1.5]) #fixed set point of 1.5m altitude
     respond2trajectory = False
     controller = None
     sec = 0
@@ -194,9 +229,84 @@ class ControlCenter(Node):
     time = 0.0
     step_size = 0.0
     step_size_old = 0.0
-    geometric_contoller_parameters = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    geometric_contoller_parameters = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   
     # Callbacks
+
+    def parameters_callback(self, params):
+        pid_change = False
+        desired_pose_change = False
+        for param in params:
+            if param.name == "kp_trans_geom":
+                self.kp_trans_geom = param.value
+                self.geometric_contoller_parameters = [self.kp_trans_geom, self.ki_trans_geom(), self.kd_trans_geom(),
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
+                pid_change = True
+            if param.name == "ki_trans_geom":
+                self.ki_trans_geom = param.value
+                self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom, self.kd_trans_geom(),
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
+                pid_change = True
+            if param.name == "kd_trans_geom":
+                self.kd_trans_geom = param.value
+                self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom,
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
+                pid_change = True
+            if param.name == "kp_rot_geom":
+                self.kp_rot_geom = param.value
+                self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
+                                                           self.kp_rot_geom, self.ki_rot_geom(), self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
+                pid_change = True
+            if param.name == "ki_rot_geom":
+                self.ki_rot_geom = param.value
+                self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
+                                                           self.kp_rot_geom(), self.ki_rot_geom, self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
+                pid_change = True
+            if param.name == "kd_rot_geom":
+                self.kd_rot_geom = param.value
+                self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom,
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
+                pid_change = True
+            if param.name == "yaw_p_multiplier":
+                self.yaw_p_multiplier = param.name
+                self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier, self.yaw_i_multiplier(), self.yaw_d_multiplier()]
+                pid_change = True
+            if param.name == "yaw_i_multiplier":
+                self.yaw_p_multiplier = param.name
+                self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier, self.yaw_d_multiplier()]
+                pid_change = True
+            if param.name == "yaw_d_multiplier":
+                self.yaw_p_multiplier = param.name
+                self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier]
+                pid_change = True
+            if param.name == "d_position":
+                self.d_postion = param.value
+                self.desired_pose.position = np.fromstring(param.value, sep = ',')
+                desired_pose_change = True
+            if param.name == "d_rot_euler":
+                self.d_rot_euler = param.value
+                self.desired_pose.rotation = R.from_euler('XYZ', np.fromstring(param.value, sep = ','), degrees = True).as_quat()
+                self.desired_pose.rotation_matrix = R.from_euler('XYZ', np.fromstring(param.value, sep = ','), degrees = True).as_matrix()
+                desired_pose_change = True
+        if pid_change:
+            self.controller.update_pid(self.geometric_contoller_parameters)
+            self.get_logger().info("PID parameters changed succesfully")
+        if desired_pose_change:
+            self.controller.update_desired_pose(self.desired_pose)
+            self.get_logger().info("Desired pose changed succesfully")
+        return SetParametersResult(successful=True)
 
     def status_update_callback(self, rcvd_msg):
         self.status.status = rcvd_msg.status
@@ -240,19 +350,19 @@ class ControlCenter(Node):
         msg.motor_velocity = to_send_L
         self.direct_motor_control_publisher.publish(msg)
 
-    def position_tracking(self, CurrentPose, Go2Pose):
+    def position_tracking(self, CurrentPose, Go2Pose, V_vec):
         msg = CustomDebug()
         msg.current_position = CurrentPose.position.tolist()
-        msg.current_rotation_vec = CurrentPose.rotation.tolist()
+        msg.current_rotation_vec = R.from_quat(CurrentPose.rotation).as_euler('XYZ').tolist()
         msg.goal_position = Go2Pose.position.tolist()
-        msg.goal_rotation_vec = Go2Pose.rotation.tolist()
+        msg.goal_rotation_vec = R.from_quat(Go2Pose.rotation).as_euler('XYZ').tolist()
         msg.error_position = (Go2Pose.position - CurrentPose.position).tolist()
-        msg.error_rotation_vec = (Go2Pose.rotation - CurrentPose.rotation).tolist()
+        msg.error_rotation_vec = (R.from_quat(Go2Pose.rotation).as_euler('XYZ') - R.from_quat(CurrentPose.rotation).as_euler('XYZ')).tolist()
         msg.bx_in_r = CurrentPose.rotation_matrix[:,0].tolist()
         msg.by_in_r = CurrentPose.rotation_matrix[:,1].tolist()
         msg.bz_in_r = CurrentPose.rotation_matrix[:,2].tolist()
-
         msg.step_size = float(self.step_size)
+        msg.v_vec = V_vec
         self.position_tracking_publisher.publish(msg)
 
     # Services
@@ -274,9 +384,10 @@ class ControlCenter(Node):
                 self.contoller_selection(self.select_controller())
                 if self.controller.type == Custom_Controller_Type.GEOMETRIC:
                     self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
-                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom()]
+                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
+                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
                 if self.config_switch():
-                    self.controller.init_controller(parameters = self.geometric_contoller_parameters)
+                    self.controller.init_controller(do_trajectory = self.respond2trajectory, take_off_pose = self.desired_pose, parameters = self.geometric_contoller_parameters)
                 if self.controller.type == Custom_Controller_Type.TEST:
                     pass
                 self.status.status = DroneStatus.FLYING
@@ -329,11 +440,11 @@ class ControlCenter(Node):
         real_state.rotation[0] = odometry.pose.pose.orientation.x
         real_state.rotation[1] = odometry.pose.pose.orientation.y
         real_state.rotation[2] = odometry.pose.pose.orientation.z
+        real_state.rotation[3] = odometry.pose.pose.orientation.w
         real_state.rot_velocity[0] = odometry.twist.twist.angular.x
         real_state.rot_velocity[1] = odometry.twist.twist.angular.y
         real_state.rot_velocity[2] = odometry.twist.twist.angular.z
-        real_state.rotation_matrix = R.from_rotvec(real_state.rotation).as_matrix()
-        real_state.rotation_matrix_derivative = R.from_rotvec(real_state.rot_velocity).as_matrix()
+        real_state.rotation_matrix = R.from_quat(real_state.rotation).as_matrix()
         return real_state
     
     def rad2abs(self, rad):
@@ -367,12 +478,13 @@ class ControlCenter(Node):
             if self.controller.type is Custom_Controller_Type.TEST:
                 control = self.controller.do_control()
             else: 
-                control = self.controller.do_control(self.real_pose, self.step_size, self.respond2trajectory)
+                control = self.controller.do_control(self.real_pose, self.step_size)
             self.direct_motor_control_transfer(control)
 
             # Debug
             desired_pose = self.controller.debug_controller_desired_pose()
-            self.position_tracking(self.real_pose, desired_pose)
+            V_vec = self.controller.debug_v()
+            self.position_tracking(self.real_pose, desired_pose, V_vec)
 
 
 def main(args=None):
