@@ -228,7 +228,8 @@ class Geometric_Controller(Custom_Controller):
   
         self.e_ang_old = self.e_ang
         e_ang = 1/2*np.reshape(wedge_op(np.matmul(np.transpose(self.desired_pose.rotation_matrix), real_pose.rotation_matrix) - \
-                                              np.matmul(np.transpose(real_pose.rotation_matrix), self.desired_pose.rotation_matrix)), (3, 1))
+                                        np.matmul(np.transpose(real_pose.rotation_matrix), self.desired_pose.rotation_matrix)),
+                              (3, 1))
         self.I_e_ang = self.I_e_ang + e_ang*step_size
         self.D_e_ang =  np.reshape(real_pose.rot_velocity, (3, 1)) - \
                         np.matmul(np.matmul(np.transpose(real_pose.rotation_matrix), self.desired_pose.rotation_matrix),
@@ -256,8 +257,8 @@ class Geometric_Controller(Custom_Controller):
 
         u = np.matmul(J_inv, (-self.f+self.v))
         for i in range(6):
-            if u[i]<0:
-                u[i] = 0
+            if u[i]<0.05:
+                u[i] = 0.05
         desired_motor_thrust = u
 
         return desired_motor_thrust

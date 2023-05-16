@@ -13,6 +13,7 @@ from ls2n_interfaces.msg import (
     KeepAlive,
     MotorControlSetPoint,
     CustomDebug,
+    # CustomPoseDebug,
 )
 from ls2n_interfaces.srv import DroneRequest, OnboardApp
 from nav_msgs.msg import Odometry
@@ -201,6 +202,12 @@ class ControlCenter(Node):
             "Posetracking",
             qos_profile_sensor_data
         )
+
+        # self.custom_pose_publisher = self.create_publisher(
+        #     CustomPose,
+        #     "Pose_translation",
+        #     qos_profile_sensor_data
+        # )
         
         # subscribers related to disturbances observation
         # self.create_subscription(
@@ -365,6 +372,19 @@ class ControlCenter(Node):
         msg.v_vec = V_vec
         self.position_tracking_publisher.publish(msg)
 
+    # def real_pose_debug(self, CurrentPose):
+    #     msg = CustomPoseDebug()
+    #     msg.position = CurrentPose.position.tolist()
+    #     msg.velocity = CurrentPose.velocity.tolist()
+    #     msg.acceleration = CurrentPose.acceleration.tolist()
+    #     msg.rotation = CurrentPose.rotation.tolist()
+    #     msg.rot_velocity = CurrentPose.rot_velocity.tolist()
+    #     msg.rot_acceleration = CurrentPose.rot_acceleration.tolist()
+    #     msg.rot_matrix1 = CurrentPose.rotation_matrix[:,0].tolist()
+    #     msg.rot_matrix2 = CurrentPose.rotation_matrix[:,1].tolist()
+    #     msg.rot_matrix3 = CurrentPose.rotation_matrix[:,2].tolist()
+    #     self.custom_pose_publisher.pubish(msg)
+
     # Services
 
     def spin_motors(self, request, response):
@@ -383,11 +403,13 @@ class ControlCenter(Node):
             if self.status.status == DroneStatus.ARMED:
                 self.contoller_selection(self.select_controller())
                 if self.controller.type == Custom_Controller_Type.GEOMETRIC:
-                    self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
-                                                           self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
-                                                           self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
-                if self.config_switch():
-                    self.controller.init_controller(do_trajectory = self.respond2trajectory, take_off_pose = self.desired_pose, parameters = self.geometric_contoller_parameters)
+                    if self.config_switch():
+                        self.geometric_contoller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
+                                                                self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
+                                                                self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
+                        self.controller.init_controller(do_trajectory = self.respond2trajectory, take_off_pose = self.desired_pose, parameters = self.geometric_contoller_parameters)
+                    else:
+                        self.controller.init_controller(do_trajectory = self.respond2trajectory, take_off_pose = self.desired_pose)
                 if self.controller.type == Custom_Controller_Type.TEST:
                     pass
                 self.status.status = DroneStatus.FLYING
@@ -485,6 +507,7 @@ class ControlCenter(Node):
             desired_pose = self.controller.debug_controller_desired_pose()
             V_vec = self.controller.debug_v()
             self.position_tracking(self.real_pose, desired_pose, V_vec)
+            # self.real_pose_debug(self.real_pose)
 
 
 def main(args=None):
