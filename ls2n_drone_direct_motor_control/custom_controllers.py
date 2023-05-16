@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from pyquaternion import Quaternion
 import transforms3d as tf3d
 from geometry_msgs.msg import Vector3Stamped
 from ls2n_interfaces.msg import MotorControlSetPoint
@@ -156,26 +157,20 @@ class Geometric_Controller(Custom_Controller):
     Krd = np.eye(3)
 
     # Errors init
-    e_pos_old = np.zeros((3,1))
-    e_pos = np.zeros((3,1))
-    D_e_pos = np.zeros((3,1))
-    I_e_pos = np.zeros((3,1))
+    e_pos = np.zeros(3)
+    D_e_pos = np.zeros(3)
+    I_e_pos = np.zeros(3)
 
-    e_ang_old = np.zeros((3,1))
-    e_ang = np.zeros((3,1))
-    D_e_ang = np.zeros((3,1))
-    I_e_ang = np.zeros((3,1))
+    e_ang = np.zeros(3)
+    D_e_ang = np.zeros(3)
+    I_e_ang = np.zeros(3)
     
     # Mixer init
     B_P_Pi = np.zeros((6,3,1))
     B_R_Pi = np.zeros((6,3,3))
     F = np.zeros((3,6))
     H = np.zeros((3,6))
-
-    # Calc f
-
-    f = np.array([[0], [0], [-g*m_tot], [0], [0], [0]])
-    v = np.zeros((6,1))
+    v_B = np.zeros(6)
 
     # Calc Jb
         
@@ -221,41 +216,32 @@ class Geometric_Controller(Custom_Controller):
 
         # updates
         
-        self.e_pos_old = self.e_pos
-        self.e_pos = np.reshape(real_pose.position, (3, 1)) - np.reshape(self.desired_pose.position, (3, 1))
+        self.e_pos = self.desired_pose.position - real_pose.position
         self.I_e_pos = self.I_e_pos + self.e_pos*step_size
-        self.D_e_pos = (self.e_pos-self.e_pos_old)/step_size
-  
-        self.e_ang_old = self.e_ang
-        e_ang = 1/2*np.reshape(wedge_op(np.matmul(np.transpose(self.desired_pose.rotation_matrix), real_pose.rotation_matrix) - \
-                                        np.matmul(np.transpose(real_pose.rotation_matrix), self.desired_pose.rotation_matrix)),
-                              (3, 1))
-        self.I_e_ang = self.I_e_ang + e_ang*step_size
-        self.D_e_ang =  np.reshape(real_pose.rot_velocity, (3, 1)) - \
-                        np.matmul(np.matmul(np.transpose(real_pose.rotation_matrix), self.desired_pose.rotation_matrix),
-                        np.reshape(self.desired_pose.rot_velocity, (3, 1)))   
+        self.D_e_pos = self.desired_pose.velocity - real_pose.velocity
 
+        temp_e_ang = (real_pose.rotation.inverse)*(self.desired_pose.rotation)
+        self.e_ang = 2*np.sign(temp_e_ang.scalar)*temp_e_ang.vector
+        self.I_e_ang = self.I_e_ang + self.e_ang*step_size
+        self.D_e_ang = self.desired_pose.rot_velocity -real_pose.rot_velocity
         # Calc V
 
-        DD_p_d = np.reshape(self.desired_pose.acceleration, (3, 1))
-        DD_r_d = np.reshape(self.desired_pose.rot_acceleration, (3, 1))
+        DD_p_d = self.desired_pose.acceleration
+        DD_r_d = self.desired_pose.rot_acceleration
 
-        Vp = DD_p_d - np.matmul(self.Kpd, self.D_e_pos) - np.matmul(self.Kpp, self.e_pos) - np.matmul(self.Kpi, self.I_e_pos)
-        Vr = DD_r_d - np.matmul(self.Krd, self.D_e_ang) - np.matmul(self.Krp, self.e_ang) - np.matmul(self.Kri, self.I_e_ang)
-        self.v = np.concatenate((Vp, Vr), axis=0)
+        Vp = DD_p_d + self.Kpd @ self.D_e_pos + self.Kpp @ self.e_pos + self.Kpi @ self.I_e_pos + np.array([0, 0, self.g])
+        Vr = DD_r_d + self.Krd @ self.D_e_ang + self.Krp @ self.e_ang + self.Kri @ self.I_e_ang
 
         # Calc J
 
-        JR = np.concatenate((np.concatenate((real_pose.rotation_matrix/self.m_tot, np.zeros((3, 3))), axis=0),
-                             np.concatenate((np.zeros((3, 3)), self.I_inv), axis=0)),
-                             axis=1)
-        J = np.matmul(JR, self.Jb)
+        f_B = real_pose.rotation.inverse.rotate(Vp*self.m_tot)
+        tau_B = np.matmul(self.I, Vr)
+        self.v_B = np.concatenate((f_B, tau_B))
 
-        # Calcl u
+        # Calc u
 
-        J_inv = np.linalg.inv(J)
+        u = np.matmul(np.linalg.inv(self.Jb), self.v_B)
 
-        u = np.matmul(J_inv, (-self.f+self.v))
         for i in range(6):
             if u[i]<0.05:
                 u[i] = 0.05
@@ -267,4 +253,4 @@ class Geometric_Controller(Custom_Controller):
         return self.desired_pose
     
     def debug_v(self):
-        return self.v
+        return self.v_B

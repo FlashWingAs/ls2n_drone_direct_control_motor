@@ -1,6 +1,7 @@
 import importlib
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from pyquaternion import Quaternion
 import os
 import subprocess
 import signal
@@ -299,8 +300,7 @@ class ControlCenter(Node):
                 desired_pose_change = True
             if param.name == "d_rot_euler":
                 self.d_rot_euler = param.value
-                self.desired_pose.rotation = R.from_euler('XYZ', np.fromstring(param.value, sep = ','), degrees = True).as_quat()
-                self.desired_pose.rotation_matrix = R.from_euler('XYZ', np.fromstring(param.value, sep = ','), degrees = True).as_matrix()
+                self.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', np.fromstring(param.value, sep = ','), degrees = True).as_quat()))
                 desired_pose_change = True
         if pid_change:
             self.controller.update_pid(self.geometric_contoller_parameters)
@@ -349,15 +349,6 @@ class ControlCenter(Node):
 
     def position_tracking(self, CurrentPose, Go2Pose, V_vec):
         msg = CustomDebug()
-        msg.current_position = CurrentPose.position.tolist()
-        msg.current_rotation_vec = R.from_quat(CurrentPose.rotation).as_euler('XYZ').tolist()
-        msg.goal_position = Go2Pose.position.tolist()
-        msg.goal_rotation_vec = R.from_quat(Go2Pose.rotation).as_euler('XYZ').tolist()
-        msg.error_position = (Go2Pose.position - CurrentPose.position).tolist()
-        msg.error_rotation_vec = (R.from_quat(Go2Pose.rotation).as_euler('XYZ') - R.from_quat(CurrentPose.rotation).as_euler('XYZ')).tolist()
-        msg.bx_in_r = CurrentPose.rotation_matrix[:,0].tolist()
-        msg.by_in_r = CurrentPose.rotation_matrix[:,1].tolist()
-        msg.bz_in_r = CurrentPose.rotation_matrix[:,2].tolist()
         msg.step_size = float(self.step_size)
         msg.v_vec = V_vec
         self.position_tracking_publisher.publish(msg)
@@ -367,12 +358,9 @@ class ControlCenter(Node):
         msg.position = CurrentPose.position.tolist()
         msg.velocity = CurrentPose.velocity.tolist()
         msg.acceleration = CurrentPose.acceleration.tolist()
-        msg.rotation = CurrentPose.rotation.tolist()
+        # msg.rotation = np.concatenate((CurrentPose.rotation.scalar,CurrentPose.rotation.vector)).tolist()
         msg.rot_velocity = CurrentPose.rot_velocity.tolist()
         msg.rot_acceleration = CurrentPose.rot_acceleration.tolist()
-        msg.rot_matrix_1 = CurrentPose.rotation_matrix[:,0].tolist()
-        msg.rot_matrix_2 = CurrentPose.rotation_matrix[:,1].tolist()
-        msg.rot_matrix_3 = CurrentPose.rotation_matrix[:,2].tolist()
         self.custom_pose_publisher.publish(msg)
 
     # Services
@@ -451,22 +439,14 @@ class ControlCenter(Node):
         real_state.velocity[0] = odometry.twist.twist.linear.x
         real_state.velocity[1] = odometry.twist.twist.linear.y
         real_state.velocity[2] = odometry.twist.twist.linear.z
-        real_state.rotation[0] = odometry.pose.pose.orientation.x
-        real_state.rotation[1] = odometry.pose.pose.orientation.y
-        real_state.rotation[2] = odometry.pose.pose.orientation.z
-        real_state.rotation[3] = odometry.pose.pose.orientation.w
+        real_state.rotation = Quaternion(odometry.pose.pose.orientation.w, odometry.pose.pose.orientation.x, odometry.pose.pose.orientation.y, odometry.pose.pose.orientation.z)
         real_state.rot_velocity[0] = odometry.twist.twist.angular.x
         real_state.rot_velocity[1] = odometry.twist.twist.angular.y
         real_state.rot_velocity[2] = odometry.twist.twist.angular.z
-        real_state.rotation_matrix = R.from_quat(real_state.rotation).as_matrix()
         return real_state
-    
-    def rad2abs(self, rad):
-        abs = (0.002*rad-66.38)/222.0
-        return abs
 
     def thrust2abs(self, thrust: float) -> float:
-        abs = thrust/222.0
+        abs = thrust/37.0
         return abs
 
     # Main loop
