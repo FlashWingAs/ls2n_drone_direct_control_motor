@@ -13,7 +13,7 @@ from ls2n_interfaces.msg import (
     KeepAlive,
     MotorControlSetPoint,
     CustomDebug,
-    # CustomPoseDebug,
+    CustomPoseDebug,
 )
 from ls2n_interfaces.srv import DroneRequest, OnboardApp
 from nav_msgs.msg import Odometry
@@ -170,11 +170,6 @@ class ControlCenter(Node):
             qos_profile_sensor_data,
         )
 
-        self.status_publisher = self.create_publisher(
-            DroneStatus,
-            "Status",
-            qos_profile_sensor_data,
-        )
 
         self.create_subscription(
             Odometry,
@@ -203,11 +198,11 @@ class ControlCenter(Node):
             qos_profile_sensor_data
         )
 
-        # self.custom_pose_publisher = self.create_publisher(
-        #     CustomPose,
-        #     "Pose_translation",
-        #     qos_profile_sensor_data
-        # )
+        self.custom_pose_publisher = self.create_publisher(
+            CustomPoseDebug,
+            "Pose_translation",
+            qos_profile_sensor_data
+        )
         
         # subscribers related to disturbances observation
         # self.create_subscription(
@@ -335,11 +330,6 @@ class ControlCenter(Node):
 
     # Publishers
 
-    def status_update(self):
-        msg = DroneStatus()
-        msg.status = self.status.status
-        self.status_publisher.publish(msg)
-
     def direct_motor_control_transfer(self, motors_set_points):
         to_send = np.zeros(12)
         max = 0.0
@@ -372,18 +362,18 @@ class ControlCenter(Node):
         msg.v_vec = V_vec
         self.position_tracking_publisher.publish(msg)
 
-    # def real_pose_debug(self, CurrentPose):
-    #     msg = CustomPoseDebug()
-    #     msg.position = CurrentPose.position.tolist()
-    #     msg.velocity = CurrentPose.velocity.tolist()
-    #     msg.acceleration = CurrentPose.acceleration.tolist()
-    #     msg.rotation = CurrentPose.rotation.tolist()
-    #     msg.rot_velocity = CurrentPose.rot_velocity.tolist()
-    #     msg.rot_acceleration = CurrentPose.rot_acceleration.tolist()
-    #     msg.rot_matrix1 = CurrentPose.rotation_matrix[:,0].tolist()
-    #     msg.rot_matrix2 = CurrentPose.rotation_matrix[:,1].tolist()
-    #     msg.rot_matrix3 = CurrentPose.rotation_matrix[:,2].tolist()
-    #     self.custom_pose_publisher.pubish(msg)
+    def real_pose_debug(self, CurrentPose):
+        msg = CustomPoseDebug()
+        msg.position = CurrentPose.position.tolist()
+        msg.velocity = CurrentPose.velocity.tolist()
+        msg.acceleration = CurrentPose.acceleration.tolist()
+        msg.rotation = CurrentPose.rotation.tolist()
+        msg.rot_velocity = CurrentPose.rot_velocity.tolist()
+        msg.rot_acceleration = CurrentPose.rot_acceleration.tolist()
+        msg.rot_matrix_1 = CurrentPose.rotation_matrix[:,0].tolist()
+        msg.rot_matrix_2 = CurrentPose.rotation_matrix[:,1].tolist()
+        msg.rot_matrix_3 = CurrentPose.rotation_matrix[:,2].tolist()
+        self.custom_pose_publisher.publish(msg)
 
     # Services
 
@@ -412,8 +402,9 @@ class ControlCenter(Node):
                         self.controller.init_controller(do_trajectory = self.respond2trajectory, take_off_pose = self.desired_pose)
                 if self.controller.type == Custom_Controller_Type.TEST:
                     pass
-                self.status.status = DroneStatus.FLYING
-                self.status_update()
+                request_out = DroneRequest.Request()
+                request_out.request = DroneRequest.Request.MOTOR_CONTROL
+                self.drone_request_client.call_async(request_out)
                 self.experiment_started = True
             else:
                 self.get_logger().info(
@@ -429,8 +420,9 @@ class ControlCenter(Node):
         if self.experiment_started:
             self.get_logger().info("Stopping drone")
             self.controller = None
-            self.status.status = DroneStatus.IDLE
-            self.status_update()
+            request_out = DroneRequest.Request()
+            request_out.request = DroneRequest.Request.DISARM
+            self.drone_request_client.call_async(request_out)
             self.experiment_started = False
         else:
             self.get_logger().info(
@@ -507,7 +499,7 @@ class ControlCenter(Node):
             desired_pose = self.controller.debug_controller_desired_pose()
             V_vec = self.controller.debug_v()
             self.position_tracking(self.real_pose, desired_pose, V_vec)
-            # self.real_pose_debug(self.real_pose)
+            self.real_pose_debug(self.real_pose)
 
 
 def main(args=None):
