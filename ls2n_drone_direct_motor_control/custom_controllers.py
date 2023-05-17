@@ -15,9 +15,6 @@ class Custom_Controller:
     type = Custom_Controller_Type.NONE
     desired_pose = Custom_Pose()
 
-    def update_desired_pose(self, new_pose):
-        self.desired_pose = new_pose
-
     def update_trajectory_setpoint(self, msg):
         for index, coordinate in enumerate(msg.joint_names):
             position = 0.0
@@ -88,18 +85,6 @@ class Custom_Controller:
     def do_control(self, _):
         pass
 
-    def init_controller(self, _):
-        pass
-
-    def debug_controller_desired_pose(self, _):
-        pass
-
-    def update_pid(self, _):
-        pass
-
-    def debug_v(self, _):
-        pass
-
 class Test_Controller(Custom_Controller):
     def __init__(self, node):
         super().__init__(node)
@@ -108,9 +93,6 @@ class Test_Controller(Custom_Controller):
     def do_control(self):
         desired_motor_speed = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
         return desired_motor_speed
-    
-    def debug_controller_desired_pose(self):
-        return self.desired_pose
 
 class Geometric_Controller(Custom_Controller):
 
@@ -139,22 +121,25 @@ class Geometric_Controller(Custom_Controller):
     d = 0.06
 
     # PID coef
-    k_p_pos = 29 #10.0
-    k_i_pos = 30 #0.5
-    k_d_pos = 10 #0.0001
+    k_p_pos = 4.0 #10.0
+    k_i_pos = 0.0 #0.5
+    k_d_pos = 4.0 #0.0001
     k_p_ang = k_p_pos #0.01
     k_i_ang = k_i_pos #0.001
     k_d_ang = k_d_pos #0.0
     yaw_p = 1.0
     yaw_i = 1.0
     yaw_d = 1.0
-    standard_geometric_controller_parameters = [k_p_pos, k_i_pos, k_d_pos, k_p_ang, k_i_ang, k_d_ang, yaw_p, yaw_i, yaw_d]
-    Kpp = np.eye(3)
-    Kpi = np.eye(3)
-    Kpd = np.eye(3)
-    Krp = np.eye(3)
-    Kri = np.eye(3)
-    Krd = np.eye(3)
+    geometric_controller_parameters = [k_p_pos, k_i_pos, k_d_pos, k_p_ang, k_i_ang, k_d_ang, yaw_p, yaw_i, yaw_d]
+    Kpp = geometric_controller_parameters[0]*np.eye(3)
+    Kpi = geometric_controller_parameters[1]*np.eye(3)
+    Kpd = geometric_controller_parameters[2]*np.eye(3)
+    Krp = geometric_controller_parameters[3]*np.eye(3)
+    Kri = geometric_controller_parameters[4]*np.eye(3)
+    Krd = geometric_controller_parameters[5]*np.eye(3)
+    Krp[2, 2] = geometric_controller_parameters[3]*geometric_controller_parameters[6]
+    Kri[2, 2] = geometric_controller_parameters[4]*geometric_controller_parameters[7]
+    Krd[2, 2] = geometric_controller_parameters[5]*geometric_controller_parameters[8]
 
     # Errors init
     e_pos = np.zeros(3)
@@ -187,30 +172,6 @@ class Geometric_Controller(Custom_Controller):
 
     Jb = np.concatenate((F, H), axis=0)
 
-    def init_controller(self, do_trajectory = False, take_off_pose = Custom_Pose(), parameters= standard_geometric_controller_parameters):
-        self.Kpp = parameters[0]*np.eye(3)
-        self.Kpi = parameters[1]*np.eye(3)
-        self.Kpd = parameters[2]*np.eye(3)
-        self.Krp = parameters[3]*np.eye(3)
-        self.Kri = parameters[4]*np.eye(3)
-        self.Krd = parameters[5]*np.eye(3)
-        self.Krp[2,2] = parameters[3]*parameters[6]
-        self.Kri[2,2] = parameters[4]*parameters[7]
-        self.Krd[2,2] = parameters[5]*parameters[8]
-        if not do_trajectory:
-            self.desired_pose = take_off_pose
-
-    def update_pid(self, parameters):
-        self.Kpp = parameters[0]*np.eye(3)
-        self.Kpi = parameters[1]*np.eye(3)
-        self.Kpd = parameters[2]*np.eye(3)
-        self.Krp = parameters[3]*np.eye(3)
-        self.Kri = parameters[4]*np.eye(3)
-        self.Krd = parameters[5]*np.eye(3)
-        self.Krp[2,2] = parameters[3]*parameters[6]
-        self.Kri[2,2] = parameters[4]*parameters[7]
-        self.Krd[2,2] = parameters[5]*parameters[8]
-
 
     def do_control(self, real_pose : Custom_Pose, step_size : float):
 
@@ -223,7 +184,7 @@ class Geometric_Controller(Custom_Controller):
         temp_e_ang = (real_pose.rotation.inverse)*(self.desired_pose.rotation)
         self.e_ang = 2*np.sign(temp_e_ang.scalar)*temp_e_ang.vector
         self.I_e_ang = self.I_e_ang + self.e_ang*step_size
-        self.D_e_ang = self.desired_pose.rot_velocity -real_pose.rot_velocity
+        self.D_e_ang = self.desired_pose.rot_velocity - real_pose.rot_velocity
         # Calc V
 
         DD_p_d = self.desired_pose.acceleration
@@ -248,9 +209,3 @@ class Geometric_Controller(Custom_Controller):
         desired_motor_thrust = u
 
         return desired_motor_thrust
-    
-    def debug_controller_desired_pose(self):
-        return self.desired_pose
-    
-    def debug_v(self):
-        return self.v_B
