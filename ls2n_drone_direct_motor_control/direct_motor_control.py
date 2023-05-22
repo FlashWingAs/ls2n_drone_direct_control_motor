@@ -39,12 +39,13 @@ from ls2n_drone_direct_motor_control.custom_controllers import (
 from ls2n_drone_direct_motor_control.custom_common import (
     Custom_Controller_Type,
     Custom_Pose,
+    Custom_PID_Param,
 )
 from ls2n_drone_bridge.drone_bridge import (
     Status
 )
 
-class ControlCenter(Node):
+class CustomControlCenter(Node):
     def __init__(self):
         super().__init__("direct_motor_control")
         parameters = [
@@ -54,11 +55,10 @@ class ControlCenter(Node):
                 ParameterType.PARAMETER_DOUBLE,
                 "Drone mass"],
             [
-                "take_off_height",
+                "max_thrust",
                 1.0,
                 ParameterType.PARAMETER_DOUBLE,
-                "Height for automatic take off",
-            ],
+                "Total drone max thrust"],
             [
                 "select_controller",
                 2,
@@ -72,58 +72,40 @@ class ControlCenter(Node):
                 "Switch if PID config is default or handpicked"
             ],
             [
-                "kp_trans_geom",
-                1.0,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric translation controller proportionnal gain"
+                "pid_trans_p",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
             ],
             [
-                "ki_trans_geom",
-                0.1,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric translation controller integral gain"
+                "pid_trans_i",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
             ],
             [
-                "kd_trans_geom",
-                0.0,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric translation controller derivative gain"
+                "pid_trans_d",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
             ],
             [
-                "kp_rot_geom",
-                0.5,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric rotational controller proportionnal gain"
+                "pid_rot_p",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
             ],
             [
-                "ki_rot_geom",
-                0.05,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric rotational controller integral gain"
+                "pid_rot_i",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
             ],
             [
-                "kd_rot_geom",
-                0.0,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric rotational controller derivative gain"
-            ],
-            [
-                "yaw_p_multiplier",
-                1.0,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric yaw controller derivative multiplier"
-            ],
-            [
-                "yaw_i_multiplier",
-                1.0,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric yaw controller derivative multiplier"
-            ],
-            [
-                "yaw_d_multiplier",
-                1.0,
-                ParameterType.PARAMETER_DOUBLE,
-                "Geometric yaw controller derivative multiplier"
+                "pid_rot_d",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
             ],
             [
                 "d_position",
@@ -151,9 +133,26 @@ class ControlCenter(Node):
                 parameter[0],
                 lambda param=parameter[0]: self.get_parameter(param).value,
             )
+        
+        self.custom_pid_switch = False                   # True if using default pid parameters set in the controller
+        i = 0
+        if self.pid_trans_p != "0.0, 0.0, 0.0":
+            self.custom_pid_switch = True
+        if self.pid_trans_i != "0.0, 0.0, 0.0":
+            self.custom_pid_switch = True
+        if self.pid_trans_d != "0.0, 0.0, 0.0":
+            self.custom_pid_switch = True
+        if self.pid_rot_p != "0.0, 0.0, 0.0":
+            self.custom_pid_switch = True
+        if self.pid_rot_i != "0.0, 0.0, 0.0":
+            self.custom_pid_switch = True
+        if self.pid_rot_d != "0.0, 0.0, 0.0":
+            self.custom_pid_switch = True
+          
 
         self.get_logger().info("Starting control center node")
 
+        # Service creation
         self.create_service(Empty, "SpinMotors", self.spin_motors)
         self.create_service(Empty, "StartExperiment", self.start_experiment)
         self.create_service(Empty, "StopExperiment", self.stop_experiment)
@@ -161,7 +160,7 @@ class ControlCenter(Node):
             DroneRequest,
             "Request",
         )
-        self.experiment_started = False
+        
         
         # Bridge feedback
         self.create_subscription(
@@ -193,6 +192,7 @@ class ControlCenter(Node):
             qos_profile_sensor_data
         )
 
+        # Debug Topics
         self.classic_debug_publisher = self.create_publisher(
             CustomDebug,
             "classic_debug",
@@ -232,15 +232,16 @@ class ControlCenter(Node):
         self.add_on_set_parameters_callback(self.parameters_callback)
 
     status = Status()
-    odom = FullState()
+    experiment_started = False
+    odom = Odometry()
     real_pose = Custom_Pose()
     respond2trajectory = False
     take_off_pose = Custom_Pose()
     controller = None
     sec = 0
     nanosec = 0.0
-    time_prev = 0.0
     time = 0.0
+    time_prev = 0.0
     step_size = 0.0
     step_size_old = 0.0
   
@@ -248,37 +249,33 @@ class ControlCenter(Node):
 
     def parameters_callback(self, params):
         for param in params:
-            if param.name == "kp_trans_geom":
-                self.controller.geometric_controller_parameters[0] = param.value
-                self.controller.Kpp = param.value*np.eye(3)
-            if param.name == "ki_trans_geom":
-                self.controller.geometric_controller_parameters[1] = param.value
-                self.controller.Kpi = param.value*np.eye(3)
-            if param.name == "kd_trans_geom":
-                self.controller.geometric_controller_parameters[2] = param.value
-                self.controller.Kpd = param.value*np.eye(3)
-            if param.name == "kp_rot_geom":
-                self.controller.geometric_controller_parameters[3] = param.value
-                self.controller.Krp = param.value*np.eye(3)
-            if param.name == "ki_rot_geom":
-                self.controller.geometric_controller_parameters[4] = param.value
-                self.controller.Kri = param.value*np.eye(3)
-            if param.name == "kd_rot_geom":
-                self.controller.geometric_controller_parameters[5] = param.value
-                self.controller.Krd = param.value*np.eye(3)
-            if param.name == "yaw_p_multiplier":
-                self.controller.geometric_controller_parameters[6] = param.value
-                self.controller.Krp[2, 2] = param.value*self.controller.geometric_controller_parameters[3]*np.eye(3)
-            if param.name == "yaw_i_multiplier":
-                self.controller.geometric_controller_parameters[7] = param.value
-                self.controller.Kri[2, 2] = param.value*self.controller.geometric_controller_parameters[4]*np.eye(3)
-            if param.name == "yaw_d_multiplier":
-                self.controller.geometric_controller_parameters[8] = param.value
-                self.controller.Krd[2, 2] = param.value*self.controller.geometric_controller_parameters[5]*np.eye(3)
-            if param.name == "d_position":
-                self.controller.desired_pose.position = np.fromstring(param.value, sep = ',')
-            if param.name == "d_rot_euler":
-                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', np.fromstring(param.value, sep = ','), degrees = True).as_quat()))
+            if self.controller.type == Custom_Controller_Type.GEOMETRIC:
+                if param.name == "pid_trans_p":
+                    self.controller.PID.trans_p = np.fromstring(param.value, sep = ",")
+                    self.controller.PID.update()
+                if param.name == "pid_trans_i":
+                    self.controller.PID.trans_i = np.fromstring(param.value, sep = ",")
+                    self.controller.PID.update()
+                if param.name == "pid_trans_d":
+                    self.controller.PID.trans_d = np.fromstring(param.value, sep = ",")
+                    self.controller.PID.update()
+                if param.name == "pid_rot_p":
+                    self.controller.PID.rot_p = np.fromstring(param.value, sep = ",")
+                    self.controller.PID.update()
+                if param.name == "pid_rot_i":
+                    self.controller.PID.rot_i = np.fromstring(param.value, sep = ",")
+                    self.controller.PID.update()
+                if param.name == "pid_rot_d":
+                    self.controller.PID.rot_d = np.fromstring(param.value, sep = ",")
+                    self.controller.PID.update()
+                if param.name == "d_position":
+                    self.controller.desired_pose.position = np.fromstring(param.value, sep = ',')
+                if param.name == "d_rot_euler":
+                    self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', np.fromstring(param.value, sep = ','), degrees = True).as_quat(), 1))
+                
+                self.get_logger().info("Parameter succesfully updated")
+            else:
+                self.get_logger().info("Controller not initialised, cannot update parameters")
         return SetParametersResult(successful=True)
 
     def status_update_callback(self, rcvd_msg):
@@ -290,7 +287,7 @@ class ControlCenter(Node):
 
     def odom_update_callback(self, odom):
         self.odom = odom
-        self.controller_go_brrr()
+        self.controller_execute()
         
     def trajectory_callback(self, msg):
         if self.controller is not None:
@@ -308,8 +305,8 @@ class ControlCenter(Node):
             abs = self.thrust2abs(motors_set_points[i])
             if abs > max:
                 max = abs
-            if abs < 0.0:
-                abs = 0
+            if abs < 0.05:
+                abs = 0.05
             to_send[i] = abs
         if max > 1:
             to_send = to_send / max
@@ -321,7 +318,15 @@ class ControlCenter(Node):
     def classic_debug(self):
         msg = CustomDebug()
         msg.step_size = float(self.step_size)
-        msg.v_vec = self.controller.v_B
+        msg.v_b = self.controller.v_B
+        msg.v_p = self.controller.Vp
+        msg.v_r = self.controller.Vr
+        msg.current_position = self.real_pose.position.tolist()
+        msg.current_rotation = np.concatenate((np.array([self.real_pose.rotation.scalar]), self.real_pose.rotation.vector)).tolist()
+        msg.goal_position = self.controller.desired_pose.position.tolist()
+        msg.goal_rotation = np.concatenate((np.array([self.controller.desired_pose.rotation.scalar]), self.controller.desired_pose.rotation.vector)).tolist()
+        msg.error_position = self.controller.e_pos.tolist()
+        msg._error_rotation = self.controller.e_ang.tolist()
         self.classic_debug_publisher.publish(msg)
 
     def real_pose_debug(self):
@@ -329,7 +334,7 @@ class ControlCenter(Node):
         msg.position = self.real_pose.position.tolist()
         msg.velocity = self.real_pose.velocity.tolist()
         msg.acceleration = self.real_pose.acceleration.tolist()
-        # msg.rotation = np.concatenate((CurrentPose.rotation.scalar,CurrentPose.rotation.vector)).tolist()
+        msg.rotation = np.concatenate((np.array([self.real_pose.rotation.scalar]), self.real_pose.rotation.vector)).tolist()
         msg.rot_velocity = self.real_pose.rot_velocity.tolist()
         msg.rot_acceleration = self.real_pose.rot_acceleration.tolist()
         self.real_pose_debug_publisher.publish(msg)
@@ -339,7 +344,7 @@ class ControlCenter(Node):
         msg.position = self.controller.desired_pose.position.tolist()
         msg.velocity = self.controller.desired_pose.velocity.tolist()
         msg.acceleration = self.controller.desired_pose.acceleration.tolist()
-        # msg.rotation = np.concatenate((CurrentPose.rotation.scalar,CurrentPose.rotation.vector)).tolist()
+        msg.rotation = np.concatenate((np.array([self.controller.desired_pose.rotation.scalar]), self.controller.desired_pose.rotation.vector)).tolist()
         msg.rot_velocity = self.controller.desired_pose.rot_velocity.tolist()
         msg.rot_acceleration = self.controller.desired_pose.rot_acceleration.tolist()
         self.desired_pose_debug_publisher.publish(msg)
@@ -349,7 +354,7 @@ class ControlCenter(Node):
         msg.position = self.take_off_pose.position.tolist()
         msg.velocity = self.take_off_pose.velocity.tolist()
         msg.acceleration = self.take_off_pose.acceleration.tolist()
-        # msg.rotation = np.concatenate((CurrentPose.rotation.scalar,CurrentPose.rotation.vector)).tolist()
+        msg.rotation = np.concatenate((np.array([self.take_off_pose.rotation.scalar]), self.take_off_pose.rotation.vector)).tolist()
         msg.rot_velocity = self.take_off_pose.rot_velocity.tolist()
         msg.rot_acceleration = self.take_off_pose.rot_acceleration.tolist()
         self.take_off_pose_debug_publisher.publish(msg)
@@ -358,6 +363,24 @@ class ControlCenter(Node):
 
     def spin_motors(self, request, response):
         if not self.experiment_started:
+            self.contoller_selection(self.select_controller())
+            if self.controller.type == Custom_Controller_Type.GEOMETRIC:
+                self.controller.m_tot = self.mass()
+                if self.custom_pid_switch:
+                    self.controller.PID = Custom_PID_Param(np.fromstring(self.pid_trans_p(), sep = ','),
+                                                           np.fromstring(self.pid_trans_i(), sep = ','),
+                                                           np.fromstring(self.pid_trans_d(), sep = ','),
+                                                           np.fromstring(self.pid_rot_p(), sep = ','),
+                                                           np.fromstring(self.pid_rot_i(), sep = ','),
+                                                           np.fromstring(self.pid_rot_d(), sep = ','))
+                    self.get_logger().info("Initilised with custom PID parameters")
+                else:
+                    self.get_logger().info("Initilised with default PID parameters")
+                if not self.respond2trajectory:
+                        self.take_off_pose.position = np.fromstring(self.d_position(), sep=",")
+                        self.controller.desired_pose = self.take_off_pose
+            if self.controller.type == Custom_Controller_Type.TEST:
+                pass
             request_out = DroneRequest.Request()
             request_out.request = DroneRequest.Request.SPIN_MOTORS
             self.drone_request_client.call_async(request_out)
@@ -370,24 +393,12 @@ class ControlCenter(Node):
     def start_experiment(self, request, response):
         if not self.experiment_started:
             if self.status.status == DroneStatus.ARMED:
-                self.contoller_selection(self.select_controller())
-                if self.controller.type == Custom_Controller_Type.GEOMETRIC:
-                    if self.config_switch():
-                        self.controller.geometric_controller_parameters = [self.kp_trans_geom(), self.ki_trans_geom(), self.kd_trans_geom(),
-                                                                self.kp_rot_geom(), self.ki_rot_geom(), self.kd_rot_geom(),
-                                                                self.yaw_p_multiplier(), self.yaw_i_multiplier(), self.yaw_d_multiplier()]
-                        self.get_logger().info("Initilised with custom PID parameters")
-                    else:
-                        self.get_logger().info("Initilised with default PID parameters")
-                    if not self.respond2trajectory:
-                            self.take_off_pose.position = np.fromstring(self.d_position(), sep=",")
-                            self.controller.desired_pose = self.take_off_pose
-                if self.controller.type == Custom_Controller_Type.TEST:
-                    pass
+                
                 request_out = DroneRequest.Request()
-                request_out.request = DroneRequest.Request.MOTOR_CONTROL
+                request_out.request = DroneRequest.Request.DIRECT_MOTOR_CONTROL
                 self.drone_request_client.call_async(request_out)
                 self.experiment_started = True
+                self.get_logger().info("Experiment starting")
             else:
                 self.get_logger().info(
                     "Drone not armed. Arm the drone then start again."
@@ -425,22 +436,22 @@ class ControlCenter(Node):
 
     # Translations
 
-    def odom2state(self, odometry):
-        real_state = Custom_Pose()
-        real_state.position[0] = odometry.pose.pose.position.x
-        real_state.position[1] = odometry.pose.pose.position.y
-        real_state.position[2] = odometry.pose.pose.position.z
-        real_state.velocity[0] = odometry.twist.twist.linear.x
-        real_state.velocity[1] = odometry.twist.twist.linear.y
-        real_state.velocity[2] = odometry.twist.twist.linear.z
-        real_state.rotation = Quaternion(odometry.pose.pose.orientation.w, odometry.pose.pose.orientation.x, odometry.pose.pose.orientation.y, odometry.pose.pose.orientation.z)
-        real_state.rot_velocity[0] = odometry.twist.twist.angular.x
-        real_state.rot_velocity[1] = odometry.twist.twist.angular.y
-        real_state.rot_velocity[2] = odometry.twist.twist.angular.z
-        return real_state
+    def odom2custom_pose(self, odometry):
+        custom = Custom_Pose()
+        custom.position[0] = odometry.pose.pose.position.x
+        custom.position[1] = odometry.pose.pose.position.y
+        custom.position[2] = odometry.pose.pose.position.z
+        custom.velocity[0] = odometry.twist.twist.linear.x
+        custom.velocity[1] = odometry.twist.twist.linear.y
+        custom.velocity[2] = odometry.twist.twist.linear.z
+        custom.rotation = Quaternion(odometry.pose.pose.orientation.w, odometry.pose.pose.orientation.x, odometry.pose.pose.orientation.y, odometry.pose.pose.orientation.z)
+        custom.rot_velocity[0] = odometry.twist.twist.angular.x
+        custom.rot_velocity[1] = odometry.twist.twist.angular.y
+        custom.rot_velocity[2] = odometry.twist.twist.angular.z
+        return custom
 
     def thrust2abs(self, thrust: float) -> float:
-        abs = thrust/37.0
+        abs = thrust/(self.max_thrust()/6.0)
         return abs
 
     # Main loop
@@ -450,7 +461,7 @@ class ControlCenter(Node):
 
     # Special actions
 
-    def controller_go_brrr(self):
+    def controller_execute(self):
         self.sec = self.odom.header.stamp.sec
         self.nanosec = self.odom.header.stamp.nanosec
         self.time_prev = self.time
@@ -459,15 +470,7 @@ class ControlCenter(Node):
         self.step_size = self.time - self.time_prev
         if self.step_size < 0:
             self.step_size = self.step_size_old
-        self.get_logger().info(str(self.real_pose.position), once=True)
-        self.get_logger().info(str(self.take_off_pose.position), once=True)
-        self.get_logger().info(str(self.real_pose.velocity), once=True)
-        self.get_logger().info(str(self.take_off_pose.velocity), once=True)
-        self.real_pose = self.odom2state(self.odom)
-        self.get_logger().info(str(self.real_pose.position), once=True)
-        self.get_logger().info(str(self.take_off_pose.position), once=True)
-        self.get_logger().info(str(self.real_pose.velocity), once=True)
-        self.get_logger().info(str(self.take_off_pose.velocity), once=True)
+        self.real_pose = self.odom2custom_pose(self.odom)
         if (self.controller is not None) and self.experiment_started:
             # Do control
             if self.controller.type is Custom_Controller_Type.TEST:
@@ -485,7 +488,7 @@ class ControlCenter(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ControlCenter()
+    node = CustomControlCenter()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
