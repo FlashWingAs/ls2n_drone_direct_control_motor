@@ -84,6 +84,12 @@ class Custom_Controller:
     def do_control(self, _):
         pass
 
+    def integral_reset(self, _):
+        pass
+
+    def anti_windup(self, _):
+        pass
+
 class Test_Controller(Custom_Controller):
     def __init__(self, node):
         super().__init__(node)
@@ -141,6 +147,11 @@ class Geometric_Controller(Custom_Controller):
 
         self.Jb = np.concatenate((self.F, self.H), axis=0)
 
+        # Anti Windup
+
+        self.anti_windup_trans = np.zeros(3)
+        self.anti_windup_rot = np.zeros(3)
+
         # Errors init
         self.e_pos = np.zeros(3)
         self.D_e_pos = np.zeros(3)
@@ -150,7 +161,30 @@ class Geometric_Controller(Custom_Controller):
         self.D_e_ang = np.zeros(3)
         self.I_e_ang = np.zeros(3)
 
-    def do_control(self, real_pose : Custom_Pose, step_size : float):
+    def integral_reset(self, trans = False, rot = False):
+        if trans:
+            self.I_e_pos = np.zeros(3)
+        if rot:
+            self.I_e_ang = np.zeros(3)
+
+    def anti_windup(self, trans = False, rot = False):
+        if trans:
+            if self.I_e_pos[0] > self.anti_windup_trans[0]:
+                self.I_e_pos[0] = self.anti_windup_trans[0]
+            if self.I_e_pos[1] > self.anti_windup_trans[1]:
+                self.I_e_pos[1] = self.anti_windup_trans[1]
+            if self.I_e_pos[2] > self.anti_windup_trans[2]:
+                self.I_e_pos[2] = self.anti_windup_trans[2]
+        if rot:
+            if self.I_e_ang[0] > self.anti_windup_rot[0]:
+                self.I_e_ang[0] = self.anti_windup_rot[0]
+            if self.I_e_ang[1] > self.anti_windup_rot[1]:
+                self.I_e_ang[1] = self.anti_windup_rot[1]
+            if self.I_e_ang[2] > self.anti_windup_rot[2]:
+                self.I_e_ang[2] = self.anti_windup_rot[2]
+
+
+    def do_control(self, real_pose : Custom_Pose, step_size : float, anti_windup_trans_switch : bool = False, anti_windup_rot_switch : bool = False):
 
         # updates
         
@@ -166,6 +200,10 @@ class Geometric_Controller(Custom_Controller):
 
         DD_p_d = self.desired_pose.acceleration
         DD_r_d = self.desired_pose.rot_acceleration
+
+        # Anti Windup
+
+        self.anti_windup(anti_windup_trans_switch, anti_windup_rot_switch)
 
         self.Vp = DD_p_d + self.PID.Ktd @ self.D_e_pos + self.PID.Ktp @ self.e_pos + self.PID.Kti @ self.I_e_pos + np.array([0, 0, self.g])
         self.Vr = DD_r_d + self.PID.Krd @ self.D_e_ang + self.PID.Krp @ self.e_ang + self.PID.Kri @ self.I_e_ang

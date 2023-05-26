@@ -119,6 +119,18 @@ class CustomControlCenter(Node):
                 ParameterType.PARAMETER_STRING,
                 "Desired orientation expressed as Euler angles"
             ],
+            [
+                "anti_windup_trans",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Anti Windup parameter for translation integral part"
+            ],
+            [
+                "anti_windup_rot",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Anti Windup parameter for rotation integral part"
+            ],
         ]
         for parameter in parameters:
             self.declare_parameter(
@@ -134,8 +146,9 @@ class CustomControlCenter(Node):
                 lambda param=parameter[0]: self.get_parameter(param).value,
             )
         
+        # Automatic detection of custom parameters
+
         self.custom_pid_switch = False                   # True if using default pid parameters set in the controller
-        i = 0
         if self.pid_trans_p != "0.0, 0.0, 0.0":
             self.custom_pid_switch = True
         if self.pid_trans_i != "0.0, 0.0, 0.0":
@@ -148,7 +161,12 @@ class CustomControlCenter(Node):
             self.custom_pid_switch = True
         if self.pid_rot_d != "0.0, 0.0, 0.0":
             self.custom_pid_switch = True
-          
+        self.anti_windup_trans_switch = False
+        self.anti_windup_rot_switch = False
+        # if self.anti_windup_trans != "0.0, 0.0, 0.0":
+        #     self.anti_windup_trans_switch = True
+        # if self.anti_windup_rot != "0.0, 0.0, 0.0":
+        #     self.anti_windup_rot_switch = True
 
         self.get_logger().info("Starting control center node")
 
@@ -255,6 +273,7 @@ class CustomControlCenter(Node):
                     self.controller.PID.update()
                 if param.name == "pid_trans_i":
                     self.controller.PID.trans_i = np.fromstring(param.value, sep = ",")
+                    self.controller.integral_reset(trans = True)
                     self.controller.PID.update()
                 if param.name == "pid_trans_d":
                     self.controller.PID.trans_d = np.fromstring(param.value, sep = ",")
@@ -264,6 +283,7 @@ class CustomControlCenter(Node):
                     self.controller.PID.update()
                 if param.name == "pid_rot_i":
                     self.controller.PID.rot_i = np.fromstring(param.value, sep = ",")
+                    self.controller.integral_reset(rot = True)
                     self.controller.PID.update()
                 if param.name == "pid_rot_d":
                     self.controller.PID.rot_d = np.fromstring(param.value, sep = ",")
@@ -272,6 +292,10 @@ class CustomControlCenter(Node):
                     self.controller.desired_pose.position = np.fromstring(param.value, sep = ',')
                 if param.name == "d_rot_euler":
                     self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', np.fromstring(param.value, sep = ','), degrees = True).as_quat(), 1))
+                if param.name == "anti_windup_trans":
+                    self.controller.anti_windup_trans = np.fromstring(param.value, sep = ',')
+                if param.name == "anti_windup_rot":
+                    self.controller.anti_windup_rot = np.fromstring(param.value, sep = ',')
                 
                 self.get_logger().info("Parameter succesfully updated")
             else:
@@ -379,6 +403,12 @@ class CustomControlCenter(Node):
                 if not self.respond2trajectory:
                         self.take_off_pose.position = np.fromstring(self.d_position(), sep=",")
                         self.controller.desired_pose = self.take_off_pose
+                if self.anti_windup_trans_switch:
+                    self.controller.anti_windup_trans = np.fromstring(self.anti_windup_trans(), sep = ',')
+                    self.get_logger().info("Translationnal anti windup activated")
+                if self.anti_windup_rot_switch:
+                    self.controller.anti_windup_rot = np.fromstring(self.anti_windup_rot(), sep = ',')
+                    self.get_logger().info("Rotationnal anti windup activated")
             if self.controller.type == Custom_Controller_Type.TEST:
                 pass
             request_out = DroneRequest.Request()
@@ -476,7 +506,7 @@ class CustomControlCenter(Node):
             if self.controller.type is Custom_Controller_Type.TEST:
                 control = self.controller.do_control()
             else: 
-                control = self.controller.do_control(self.real_pose, self.step_size)
+                control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
             self.direct_motor_control_transfer(control)
 
             # Debug
