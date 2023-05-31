@@ -7,6 +7,7 @@ import subprocess
 import signal
 import rclpy
 from geometry_msgs.msg import Vector3Stamped
+from sensor_msgs.msg import Joy as JoyMsg
 from ls2n_interfaces.msg import (
     AttitudeThrustSetPoint,
     DroneStatus,
@@ -234,6 +235,13 @@ class CustomControlCenter(Node):
             "take_off_pose",
             qos_profile_sensor_data
         )
+
+        self.joy_sub = self.create_subscription(
+            JoyMsg,
+            "/CommandCenter/Joystick",
+            self.joystick_callback,
+            qos_profile_sensor_data,
+        )
         
         # subscribers related to disturbances observation
         # self.create_subscription(
@@ -254,7 +262,7 @@ class CustomControlCenter(Node):
     odom = Odometry()
     real_pose = Custom_Pose()
     respond2trajectory = False
-    take_off_pose = Custom_Pose()
+    take_off_pose = real_pose.copy()
     controller = None
     sec = 0
     nanosec = 0.0
@@ -319,6 +327,126 @@ class CustomControlCenter(Node):
                 if self.status.status == DroneStatus.FLYING and self.experiment_started:
                     if self.respond2trajectory: 
                         self.controller.update_setpoints(msg)
+
+    TX_ref = 1
+    TY_ref = 0
+    TZ_ref = 4
+    RX_ref = 6
+    RY_ref = 7
+    RZ_ref = 3
+    L3_ref = 9
+    R3_ref = 10
+    TX = 0
+    TY = 0
+    TZ = 0
+    RX = 0
+    RY = 0
+    RZ = 0
+    L3 = 0
+    R3 = 0
+    trans_increment = 0.2       # meters
+    pitch_roll_increment = 2.0  # degrees
+    yaw_increment = 10.0
+
+    def joystick_callback(self, data):
+        tx = np.round(data.axes[self.TX_ref], 1)
+        ty = np.round(data.axes[self.TY_ref], 1)
+        tz = np.round(data.axes[self.TZ_ref], 1)
+        rx = np.round(data.axes[self.RX_ref], 1)
+        ry = np.round(data.axes[self.RY_ref], 1)
+        rz = np.round(data.axes[self.RZ_ref], 1)
+        l3 = np.round(data.buttons[self.L3_ref], 1)
+        r3 = np.round(data.buttons[self.R3_ref], 1)
+        if self.experiment_started:
+
+            if (abs(tx) >= 0.5) and self.TX == 0:
+                self.TX = np.sign(tx)
+                new_pose = self.controller.desired_pose.position
+                if self.TX > 0 :
+                    new_pose[0] += self.trans_increment
+                elif self.TX < 0:
+                    new_pose[0] -= self.trans_increment
+                self.controller.desired_pose.position = new_pose
+                self.get_logger().info('Translation along X of ' + str(np.sign(self.TX)*self.trans_increment) + 'meters')
+            if (abs(tx) < 0.5) and self.TX != 0:
+                self.TX = 0
+
+            if (abs(ty) >= 0.5) and self.TY == 0:
+                self.TY = np.sign(ty)
+                new_pose = self.controller.desired_pose.position
+                if self.TY > 0 :
+                    new_pose[1] += self.trans_increment
+                elif self.TY < 0:
+                    new_pose[1] -= self.trans_increment
+                self.controller.desired_pose.position = new_pose
+                self.get_logger().info('Translation along Y of ' + str(np.sign(self.TY)*self.trans_increment) + 'meters')
+            if (abs(ty) < 0.5) and self.TY != 0:
+                self.TY = 0
+            
+            if (abs(tz) >= 0.5) and self.TZ == 0:
+                self.TZ = np.sign(tz)
+                new_pose = self.controller.desired_pose.position
+                if self.TZ > 0 :
+                    new_pose[2] += self.trans_increment
+                elif self.TZ < 0:
+                    new_pose[2] -= self.trans_increment
+                self.controller.desired_pose.position = new_pose
+                self.get_logger().info('Translation along Z of ' + str(np.sign(self.TZ)*self.trans_increment) + 'meters')
+            if (abs(tz) < 0.5) and self.TZ != 0:
+                self.TZ = 0
+
+            if (abs(rx) >= 0.5) and self.RX == 0:
+                self.RX = np.sign(rx)
+                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('ZYX', degrees = True)
+                if self.RX > 0 :
+                    new_pose[2] -= self.pitch_roll_increment
+                elif self.RX < 0:
+                    new_pose[2] += self.pitch_roll_increment
+                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', new_pose, degrees = True).as_quat(), 1))
+                self.get_logger().info('Rotation along X of ' + str(np.sign(self.RX)*self.pitch_roll_increment) + 'degrees')
+            if (abs(rx) < 0.5) and self.RX != 0:
+                self.RX = 0
+
+            if (abs(ry) >= 0.5) and self.RY == 0:
+                self.RY = np.sign(ry)
+                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('ZYX', degrees = True)
+                if self.RY > 0 :
+                    new_pose[1] += self.pitch_roll_increment
+                elif self.RY < 0:
+                    new_pose[1] -= self.pitch_roll_increment
+                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', new_pose, degrees = True).as_quat(), 1))
+                self.get_logger().info('Rotation along Y of ' + str(np.sign(self.RZ)*self.pitch_roll_increment) + 'degrees')
+            if (abs(ry) < 0.5) and self.RY != 0:
+                self.RY = 0
+
+            if (abs(rz) >= 0.5) and self.RZ == 0:
+                self.RZ = np.sign(rz)
+                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('ZYX', degrees = True)
+                if self.RZ > 0 :
+                    new_pose[0] += self.yaw_increment
+                elif self.RZ < 0:
+                    new_pose[0] -= self.yaw_increment
+                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', new_pose, degrees = True).as_quat(), 1))
+                self.get_logger().info('Rotation along Z of ' + str(np.sign(self.RZ)*self.yaw_increment) + 'degrees')
+            if (abs(rz) < 0.5) and self.RZ != 0:
+                self.RZ = 0
+
+            if (abs(l3 >= 0.5)) and self.L3 == 0:
+                self.L3 = 1
+                new_pose = np.fromstring(self.d_position(), sep=",")
+                self.controller.desired_pose = self.take_off_pose
+                self.controller.desired_pose.position = new_pose
+                self.get_logger().info('Translation reset to ' + str(new_pose))
+            if (abs(l3 < 0.5) and self.L3) != 0:
+                self.L3 = 0
+
+            if (abs(r3 >= 0.5)) and self.R3 == 0:
+                self.R3 = 1
+                new_pose = Quaternion()
+                self.controller.desired_pose.rotation = new_pose
+                self.get_logger().info('Rotation reset to ' + str(new_pose))
+            if (abs(r3 < 0.5) and self.R3) != 0:
+                self.R3 = 0
 
     # Publishers
 

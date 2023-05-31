@@ -96,7 +96,7 @@ class Test_Controller(Custom_Controller):
         self.type = Custom_Controller_Type.TEST
 
     def do_control(self):
-        desired_motor_speed = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+        desired_motor_speed = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
         return desired_motor_speed
 
 class Geometric_Controller(Custom_Controller):
@@ -111,15 +111,15 @@ class Geometric_Controller(Custom_Controller):
         self.alpha = self.pi/3
         self.g = 9.81
         self.m_tot = 3.3981
-        self.I1 = 0.1
+        self.I1 = 0.323
         self.I2 = self.I1
-        self.I3 = 0.15
+        self.I3 = 0.484
         self.I = np.diag(np.array([self.I1, self.I2, self.I3]))
         self.I_inv = np.linalg.pinv(self.I)
         self.lambda_arms = np.array([-self.pi/2, self.pi/2, self.pi/6, -5*self.pi/6, -self.pi/6, 5*self.pi/6])
         self.alpha_arms = self.alpha*np.array([-1, 1, -1, 1, 1, -1])
         self.clock = np.array([1, -1, 1, -1, -1, 1]) # Clockwise or Anti-clockwise
-        self.d = 0.06
+        self.d = 0.745
         self.default_pid_param_trans_p = np.array([1.0, 1.0, 1.0])
         self.default_pid_param_trans_i = np.array([0.0, 0.0, 0.0])
         self.default_pid_param_trans_d = np.array([1.0, 1.0, 1.0])
