@@ -54,12 +54,14 @@ class CustomControlCenter(Node):
                 "mass",
                 1.0,
                 ParameterType.PARAMETER_DOUBLE,
-                "Drone mass"],
+                "Drone mass"
+            ],
             [
                 "max_thrust",
-                1.0,
+                10000.0,
                 ParameterType.PARAMETER_DOUBLE,
-                "Total drone max thrust"],
+                "Total drone max thrust"
+            ],
             [
                 "select_controller",
                 2,
@@ -132,6 +134,18 @@ class CustomControlCenter(Node):
                 ParameterType.PARAMETER_STRING,
                 "Anti Windup parameter for rotation integral part"
             ],
+            [
+                "bat_discharge_a",
+                0.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Battery discharge model parameter a"
+            ],
+            [
+                "bat_discharge_b",
+                0.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Battery discharge model parameter b"
+            ],
         ]
         for parameter in parameters:
             self.declare_parameter(
@@ -179,7 +193,12 @@ class CustomControlCenter(Node):
             DroneRequest,
             "Request",
         )
-        
+        self.start_trajectory_client = self.create_client(
+            Empty, "StartTrajectory"
+        )
+        self.reset_trajectory_client = self.create_client(
+            Empty, "ResetTrajectory"
+        )
         
         # Bridge feedback
         self.create_subscription(
@@ -255,14 +274,18 @@ class CustomControlCenter(Node):
             0.01, self.main_loop
             )
         
+        self.battery_loop_timer = self.create_timer(
+            2.0, self.battery_loop
+            )
+        
         self.add_on_set_parameters_callback(self.parameters_callback)
 
     status = Status()
     experiment_started = False
     odom = Odometry()
     real_pose = Custom_Pose()
-    respond2trajectory = False
     take_off_pose = real_pose.copy()
+    land_pose = real_pose.copy()
     controller = None
     sec = 0
     nanosec = 0.0
@@ -270,12 +293,16 @@ class CustomControlCenter(Node):
     time_prev = 0.0
     step_size = 0.0
     step_size_old = 0.0
+    taking_off_flag = False
+    landing_flag = False
+    max_computed_thrust = 10000.0
+    bat_v = 0.0
   
     # Callbacks
 
     def parameters_callback(self, params):
         for param in params:
-            if self.controller.type == Custom_Controller_Type.GEOMETRIC:
+            if self.controller is not None and self.controller.type == Custom_Controller_Type.GEOMETRIC:
                 if param.name == "pid_trans_p":
                     self.controller.PID.trans_p = np.fromstring(param.value, sep = ",")
                     self.controller.PID.update()
@@ -325,8 +352,7 @@ class CustomControlCenter(Node):
         if self.controller is not None:
             if self.controller.type == Custom_Controller_Type.GEOMETRIC:
                 if self.status.status == DroneStatus.FLYING and self.experiment_started:
-                    if self.respond2trajectory: 
-                        self.controller.update_setpoints(msg)
+                    self.controller.update_trajectory_setpoint(msg)
 
     TX_ref = 1
     TY_ref = 0
@@ -336,6 +362,8 @@ class CustomControlCenter(Node):
     RZ_ref = 3
     L3_ref = 9
     R3_ref = 10
+    START_ref = 7
+    SELECT_ref = 6
     TX = 0
     TY = 0
     TZ = 0
@@ -344,9 +372,11 @@ class CustomControlCenter(Node):
     RZ = 0
     L3 = 0
     R3 = 0
-    trans_increment = 0.2       # meters
+    START = 0
+    SELECT = 0
+    trans_increment = 0.1       # meters
     pitch_roll_increment = 2.0  # degrees
-    yaw_increment = 10.0
+    yaw_increment = 5.0
 
     def joystick_callback(self, data):
         tx = np.round(data.axes[self.TX_ref], 1)
@@ -357,6 +387,8 @@ class CustomControlCenter(Node):
         rz = np.round(data.axes[self.RZ_ref], 1)
         l3 = np.round(data.buttons[self.L3_ref], 1)
         r3 = np.round(data.buttons[self.R3_ref], 1)
+        start = np.round(data.buttons[self.START_ref], 1)
+        select = np.round(data.buttons[self.SELECT_ref], 1)
         if self.experiment_started:
 
             if (abs(tx) >= 0.5) and self.TX == 0:
@@ -447,6 +479,20 @@ class CustomControlCenter(Node):
                 self.get_logger().info('Rotation reset to ' + str(new_pose))
             if (abs(r3 < 0.5) and self.R3) != 0:
                 self.R3 = 0
+            
+            if (abs(start >= 0.5)) and self.START == 0:
+                self.START = 1
+                self.start_trajectory_client.call_async(Empty.Request())
+                self.get_logger().info('Starting trajectory')
+            if (abs(start < 0.5) and self.START) != 0:
+                self.START = 0
+
+            if (abs(select >= 0.5)) and self.SELECT == 0:
+                self.SELECT = 1
+                self.reset_trajectory_client.call_async(Empty.Request())
+                self.get_logger().info('Stopping and reseting trajectory')
+            if (abs(select < 0.5) and self.SELECT) != 0:
+                self.SELECT = 0
 
     # Publishers
 
@@ -518,6 +564,7 @@ class CustomControlCenter(Node):
             self.contoller_selection(self.select_controller())
             if self.controller.type == Custom_Controller_Type.GEOMETRIC:
                 self.controller.m_tot = self.mass()
+                self.desired_altitude = np.fromstring(self.d_position(), sep=",")[2]
                 if self.custom_pid_switch:
                     self.controller.PID = Custom_PID_Param(np.fromstring(self.pid_trans_p(), sep = ','),
                                                            np.fromstring(self.pid_trans_i(), sep = ','),
@@ -528,9 +575,6 @@ class CustomControlCenter(Node):
                     self.get_logger().info("Initilised with custom PID parameters")
                 else:
                     self.get_logger().info("Initilised with default PID parameters")
-                if not self.respond2trajectory:
-                        self.take_off_pose.position = np.fromstring(self.d_position(), sep=",")
-                        self.controller.desired_pose = self.take_off_pose
                 if self.anti_windup_trans_switch:
                     self.controller.anti_windup_trans = np.fromstring(self.anti_windup_trans(), sep = ',')
                     self.get_logger().info("Translationnal anti windup activated")
@@ -551,12 +595,15 @@ class CustomControlCenter(Node):
     def start_experiment(self, request, response):
         if not self.experiment_started:
             if self.status.status == DroneStatus.ARMED:
-                
                 request_out = DroneRequest.Request()
                 request_out.request = DroneRequest.Request.DIRECT_MOTOR_CONTROL
                 self.drone_request_client.call_async(request_out)
-                self.experiment_started = True
+
+                # Starting the controller with take off procedure
                 self.get_logger().info("Experiment starting")
+                self.switch_take_off()
+                # Enabling the controller
+                self.experiment_started = True
             else:
                 self.get_logger().info(
                     "Drone not armed. Arm the drone then start again."
@@ -569,28 +616,13 @@ class CustomControlCenter(Node):
     
     def stop_experiment(self, request, response):
         if self.experiment_started:
-            self.get_logger().info("Stopping drone")
-            self.controller = None
-            request_out = DroneRequest.Request()
-            request_out.request = DroneRequest.Request.DISARM
-            self.drone_request_client.call_async(request_out)
-            self.experiment_started = False
+            self.get_logger().info("Experiment stopping")
+            self.switch_land()
         else:
             self.get_logger().info(
                 "Experiment already stopped."
             )
         return response
-    
-    # State machine
-
-    def contoller_selection(self, selection):
-        match selection:
-            case 1:
-                self.controller = Test_Controller(self)
-                self.get_logger().info("Experiment starting with TEST controller")
-            case 2:
-                self.controller = Geometric_Controller(self)
-                self.get_logger().info("Experiment starting with GEOMETRIC controller")
 
     # Translations
 
@@ -609,13 +641,66 @@ class CustomControlCenter(Node):
         return custom
 
     def thrust2abs(self, thrust: float) -> float:
-        abs = thrust/(self.max_thrust()/6.0)
+        abs = thrust/(self.max_computed_thrust/6.0)
         return abs
+
+    # State machine
+
+    def contoller_selection(self, selection):
+        match selection:
+            case 1:
+                self.controller = Test_Controller(self)
+                self.get_logger().info("Experiment starting with TEST controller")
+            case 2:
+                self.controller = Geometric_Controller(self)
+                self.get_logger().info("Experiment starting with GEOMETRIC controller")
+    
+    def switch_take_off(self):
+        self.take_off_pose.position = self.real_pose.position
+        self.take_off_pose.position[2] = self.desired_altitude
+        self.controller.desired_pose = self.take_off_pose
+        self.taking_off_flag = True
+        self.get_logger().info("Drone taking off")
+
+    def switch_flight(self):
+        self.get_logger().info("Take off complete, heading to desired position")
+        self.controller.desired_pose.position = np.fromstring(self.d_position(), sep=",")
+        self.controller.desired_pose.rotation = Quaternion()
+
+    def switch_land(self):
+        self.land_pose.position = self.real_pose.position
+        self.land_pose.position[2] = 0.3
+        self.controller.desired_pose = self.land_pose
+        self.landing_flag = True
+        self.get_logger().info("Drone landing")
+
+    def switch_landed(self):
+        request_out = DroneRequest.Request()
+        request_out.request = DroneRequest.Request.DISARM
+        self.drone_request_client.call_async(request_out)
+        self.experiment_started = False
+        self.controller = None
+        self.get_logger().info("Landing complete,\nExperiment stopped")
+
+    def taking_off(self):
+        error = np.linalg.norm(self.take_off_pose.position - self.real_pose.position)
+        if error < 0.1:
+            self.taking_off_flag = False
+            self.switch_flight()
+
+    def landing(self):
+        error = np.linalg.norm(self.land_pose.position - self.real_pose.position)
+        if error < 0.15:
+            self.landing_flag = False
+            self.switch_landed()
 
     # Main loop
 
     def main_loop(self):
         pass
+
+    def battery_loop(self):
+        self.max_computed_thrust = self.max_thrust() - (self. bat_discharge_a()*self.bat_v + self.bat_discharge_b())
 
     # Special actions
 
@@ -629,19 +714,24 @@ class CustomControlCenter(Node):
         if self.step_size < 0:
             self.step_size = self.step_size_old
         self.real_pose = self.odom2custom_pose(self.odom)
-        if (self.controller is not None) and self.experiment_started:
+        if (self.controller is not None):
             # Do control
             if self.controller.type is Custom_Controller_Type.TEST:
                 control = self.controller.do_control()
             else: 
-                control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
-            self.direct_motor_control_transfer(control)
+                if self.taking_off_flag:
+                    self.taking_off()
+                if self.landing_flag:
+                    self.landing()
+                if self.experiment_started:
+                    control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
+                    self.direct_motor_control_transfer(control)
 
-            # Debug
-            self.classic_debug()
-            self.real_pose_debug()
-            self.desired_pose_debug()
-            self.take_off_pose_debug()
+                    # Debug
+                    self.classic_debug()
+                    self.real_pose_debug()
+                    self.desired_pose_debug()
+                    self.take_off_pose_debug()
 
 
 def main(args=None):

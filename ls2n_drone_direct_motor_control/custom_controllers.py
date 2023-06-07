@@ -15,6 +15,7 @@ class Custom_Controller:
         self.desired_pose = Custom_Pose()
 
     def update_trajectory_setpoint(self, msg):
+        euler_vector = np.array([0.0, 0.0, 0.0])
         for index, coordinate in enumerate(msg.joint_names):
             position = 0.0
             velocity = 0.0
@@ -26,60 +27,34 @@ class Custom_Controller:
             if len(msg.points[0].accelerations) > index:
                 acceleration = msg.points[0].accelerations[index]
             if coordinate == "x":
-                self.desired_state.position[0] = position
-                self.desired_state.velocity[0] = velocity
-                self.desired_state.acceleration[0] = acceleration
+                self.desired_pose.position[0] = position
+                self.desired_pose.velocity[0] = velocity
+                self.desired_pose.acceleration[0] = acceleration
             elif coordinate == "y":
-                self.desired_state.position[1] = position
-                self.desired_state.velocity[1] = velocity
-                self.desired_state.acceleration[1] = acceleration
+                self.desired_pose.position[1] = position
+                self.desired_pose.velocity[1] = velocity
+                self.desired_pose.acceleration[1] = acceleration
             elif coordinate == "z":
-                self.desired_state.position[2] = position
-                self.desired_state.velocity[2] = velocity
-                self.desired_state.acceleration[2] = acceleration
+                self.desired_pose.position[2] = position
+                self.desired_pose.velocity[2] = velocity
+                self.desired_pose.acceleration[2] = acceleration
             if coordinate == "phi":
-                self.desired_state.rotation[0] = position
-                self.desired_state.rot_velocity[0] = velocity
-                self.desired_state.rot_acceleration[0] = acceleration
+                euler_vector[0] = position
+                self.desired_pose.rot_velocity[0] = velocity*np.pi/180
+                self.desired_pose.rot_acceleration[0] = acceleration*np.pi/180
             elif coordinate == "theta":
-                self.desired_state.rotation[1] = position
-                self.desired_state.rot_velocity[1] = velocity
-                self.desired_state.rot_acceleration[1] = acceleration
+                euler_vector[1] = position
+                self.desired_pose.rot_velocity[1] = velocity*np.pi/180
+                self.desired_pose.rot_acceleration[1] = acceleration*np.pi/180
             elif coordinate == "psi":
-                self.desired_state.rotation[2] = position
-                self.desired_state.rot_velocity[2] = velocity
-                self.desired_state.rot_acceleration[2] = acceleration
-            elif coordinate == "R11" :
-                self.desired_pose.rotation_matrix[0, 0] = position
-                self.desired_pose.rotation_matrix_derivative[0, 0] = velocity
-            elif coordinate == "R12" :
-                self.desired_pose.rotation_matrix[0, 1] = position
-                self.desired_pose.rotation_matrix_derivative[0, 1] = velocity
-            elif coordinate == "R13" :
-                self.desired_pose.rotation_matrix[0, 2] = position
-                self.desired_pose.rotation_matrix_derivative[0, 2] = velocity
-            elif coordinate == "R21" :
-                self.desired_pose.rotation_matrix[1, 0] = position
-                self.desired_pose.rotation_matrix_derivative[1, 0] = velocity
-            elif coordinate == "R22" :
-                self.desired_pose.rotation_matrix[1, 1] = position
-                self.desired_pose.rotation_matrix_derivative[1, 1] = velocity
-            elif coordinate == "R23" :
-                self.desired_pose.rotation_matrix[1, 2] = position
-                self.desired_pose.rotation_matrix_derivative[1, 2] = velocity
-            elif coordinate == "R31" :
-                self.desired_pose.rotation_matrix[2, 0] = position
-                self.desired_pose.rotation_matrix_derivative[2, 0] = velocity
-            elif coordinate == "R32" :
-                self.desired_pose.rotation_matrix[2, 1] = position
-                self.desired_pose.rotation_matrix_derivative[2, 1] = velocity
-            elif coordinate == "R33" :
-                self.desired_pose.rotation_matrix[2, 2] = position
-                self.desired_pose.rotation_matrix_derivative[2, 2] = velocity
-            else:
-                self.node.get_logger.warn(
-                    "Invalid coordinate" + coordinate + " received."
-                )
+                euler_vector[2] = position
+                self.desired_pose.rot_velocity[2] = velocity*np.pi/180
+                self.desired_pose.rot_acceleration[2] = acceleration*np.pi/180
+            # else:
+            #     self.node.get_logger().warn(
+            #         "Invalid coordinate" + coordinate + " received."
+            #     )
+        self.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', euler_vector, degrees = True).as_quat(), 1))
 
     def do_control(self, _):
         pass
@@ -119,7 +94,7 @@ class Geometric_Controller(Custom_Controller):
         self.lambda_arms = np.array([-self.pi/2, self.pi/2, self.pi/6, -5*self.pi/6, -self.pi/6, 5*self.pi/6])
         self.alpha_arms = self.alpha*np.array([-1, 1, -1, 1, 1, -1])
         self.clock = np.array([1, -1, 1, -1, -1, 1]) # Clockwise or Anti-clockwise
-        self.d = 0.745
+        self.d = 0.06 #0.745
         self.default_pid_param_trans_p = np.array([1.0, 1.0, 1.0])
         self.default_pid_param_trans_i = np.array([0.0, 0.0, 0.0])
         self.default_pid_param_trans_d = np.array([1.0, 1.0, 1.0])
