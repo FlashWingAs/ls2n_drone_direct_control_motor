@@ -326,7 +326,7 @@ class CustomControlCenter(Node):
                 if param.name == "d_position":
                     self.controller.desired_pose.position = np.fromstring(param.value, sep = ',')
                 if param.name == "d_rot_euler":
-                    self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', np.fromstring(param.value, sep = ','), degrees = True).as_quat(), 1))
+                    self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', np.fromstring(param.value, sep = ','), degrees = True).as_quat(), 1))
                 if param.name == "anti_windup_trans":
                     self.controller.anti_windup_trans = np.fromstring(param.value, sep = ',')
                 if param.name == "anti_windup_rot":
@@ -429,36 +429,36 @@ class CustomControlCenter(Node):
 
             if (abs(rx) >= 0.5) and self.RX == 0:
                 self.RX = np.sign(rx)
-                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('ZYX', degrees = True)
+                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
                 if self.RX > 0 :
-                    new_pose[2] -= self.pitch_roll_increment
+                    new_pose[0] -= self.pitch_roll_increment
                 elif self.RX < 0:
-                    new_pose[2] += self.pitch_roll_increment
-                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', new_pose, degrees = True).as_quat(), 1))
+                    new_pose[0] += self.pitch_roll_increment
+                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
                 self.get_logger().info('Rotation along X of ' + str(np.sign(self.RX)*self.pitch_roll_increment) + 'degrees')
             if (abs(rx) < 0.5) and self.RX != 0:
                 self.RX = 0
 
             if (abs(ry) >= 0.5) and self.RY == 0:
                 self.RY = np.sign(ry)
-                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('ZYX', degrees = True)
+                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
                 if self.RY > 0 :
                     new_pose[1] += self.pitch_roll_increment
                 elif self.RY < 0:
                     new_pose[1] -= self.pitch_roll_increment
-                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', new_pose, degrees = True).as_quat(), 1))
+                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
                 self.get_logger().info('Rotation along Y of ' + str(np.sign(self.RZ)*self.pitch_roll_increment) + 'degrees')
             if (abs(ry) < 0.5) and self.RY != 0:
                 self.RY = 0
 
             if (abs(rz) >= 0.5) and self.RZ == 0:
                 self.RZ = np.sign(rz)
-                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('ZYX', degrees = True)
+                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
                 if self.RZ > 0 :
-                    new_pose[0] += self.yaw_increment
+                    new_pose[2] += self.yaw_increment
                 elif self.RZ < 0:
-                    new_pose[0] -= self.yaw_increment
-                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', new_pose, degrees = True).as_quat(), 1))
+                    new_pose[2] -= self.yaw_increment
+                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
                 self.get_logger().info('Rotation along Z of ' + str(np.sign(self.RZ)*self.yaw_increment) + 'degrees')
             if (abs(rz) < 0.5) and self.RZ != 0:
                 self.RZ = 0
@@ -466,7 +466,6 @@ class CustomControlCenter(Node):
             if (abs(l3 >= 0.5)) and self.L3 == 0:
                 self.L3 = 1
                 new_pose = np.fromstring(self.d_position(), sep=",")
-                self.controller.desired_pose = self.take_off_pose
                 self.controller.desired_pose.position = new_pose
                 self.get_logger().info('Translation reset to ' + str(new_pose))
             if (abs(l3 < 0.5) and self.L3) != 0:

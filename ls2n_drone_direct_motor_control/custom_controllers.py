@@ -38,15 +38,15 @@ class Custom_Controller:
                 self.desired_pose.position[2] = position
                 self.desired_pose.velocity[2] = velocity
                 self.desired_pose.acceleration[2] = acceleration
-            if coordinate == "phi":
+            if coordinate == "roll":
                 euler_vector[0] = position
                 self.desired_pose.rot_velocity[0] = velocity*np.pi/180
                 self.desired_pose.rot_acceleration[0] = acceleration*np.pi/180
-            elif coordinate == "theta":
+            elif coordinate == "pitch":
                 euler_vector[1] = position
                 self.desired_pose.rot_velocity[1] = velocity*np.pi/180
                 self.desired_pose.rot_acceleration[1] = acceleration*np.pi/180
-            elif coordinate == "psi":
+            elif coordinate == "zaw":
                 euler_vector[2] = position
                 self.desired_pose.rot_velocity[2] = velocity*np.pi/180
                 self.desired_pose.rot_acceleration[2] = acceleration*np.pi/180
@@ -54,7 +54,7 @@ class Custom_Controller:
             #     self.node.get_logger().warn(
             #         "Invalid coordinate" + coordinate + " received."
             #     )
-        self.desired_pose.rotation = Quaternion(np.roll(R.from_euler('ZYX', euler_vector, degrees = True).as_quat(), 1))
+        self.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', euler_vector, degrees = True).as_quat(), 1))
 
     def do_control(self, _):
         pass
