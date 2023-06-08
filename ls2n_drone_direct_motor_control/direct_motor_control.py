@@ -297,6 +297,9 @@ class CustomControlCenter(Node):
     landing_flag = False
     max_computed_thrust = 10000.0
     bat_v = 0.0
+    vsn_limits_x = [-1.0, 1.0]
+    vsn_limits_y = [-2.0, 2.0]
+    vsn_limits_z = [0.0, 2.7]
   
     # Callbacks
 
@@ -489,6 +492,10 @@ class CustomControlCenter(Node):
             if (abs(select >= 0.5)) and self.SELECT == 0:
                 self.SELECT = 1
                 self.reset_trajectory_client.call_async(Empty.Request())
+                new_pose = Custom_Pose()
+                new_pose.position = np.fromstring(self.d_position(), sep=",")
+                new_pose.rotation = Quaternion()
+                self.controller.desired_pose = new_pose
                 self.get_logger().info('Stopping and reseting trajectory')
             if (abs(select < 0.5) and self.SELECT) != 0:
                 self.SELECT = 0
@@ -703,6 +710,29 @@ class CustomControlCenter(Node):
 
     # Special actions
 
+    
+    def virtual_safety_net(self):
+        if self.controller.type is Custom_Controller_Type.GEOMETRIC:
+            vsn_trigger = False
+            if self.controller.desired_pose.position[0] < self.vsn_limits_x[0] or self.real_pose.position[0] < self.vsn_limits_x[0]:
+                vsn_trigger = True
+            if self.controller.desired_pose.position[0] > self.vsn_limits_x[1] or self.real_pose.position[0] > self.vsn_limits_x[1]:
+                vsn_trigger = True
+            if self.controller.desired_pose.position[1] < self.vsn_limits_y[0] or self.real_pose.position[1] < self.vsn_limits_y[0]:
+                vsn_trigger = True
+            if self.controller.desired_pose.position[1] > self.vsn_limits_y[1] or self.real_pose.position[1] > self.vsn_limits_y[1]:
+                vsn_trigger = True
+            if self.controller.desired_pose.position[2] < self.vsn_limits_z[0] or self.real_pose.position[2] < self.vsn_limits_z[0]:
+                vsn_trigger = True
+            if self.controller.desired_pose.position[2] > self.vsn_limits_z[1] or self.real_pose.position[2] > self.vsn_limits_z[1]:
+                vsn_trigger = True
+            if vsn_trigger == True:
+                self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose")
+                self.reset_trajectory_client.call_async(Empty.Request())
+                self.controller.desired_pose.position = np.fromstring(self.d_position(), sep=",")
+                self.controller.desired_pose.rotation = Quaternion()
+
+
     def controller_execute(self):
         self.sec = self.odom.header.stamp.sec
         self.nanosec = self.odom.header.stamp.nanosec
@@ -723,6 +753,7 @@ class CustomControlCenter(Node):
                 if self.landing_flag:
                     self.landing()
                 if self.experiment_started:
+                    self.virtual_safety_net()
                     control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
                     self.direct_motor_control_transfer(control)
 
