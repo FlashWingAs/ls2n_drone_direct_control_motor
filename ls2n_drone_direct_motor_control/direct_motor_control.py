@@ -295,11 +295,6 @@ class CustomControlCenter(Node):
     step_size_old = 0.0
     taking_off_flag = False
     landing_flag = False
-    max_computed_thrust = 10000.0
-    bat_v = 0.0
-    vsn_limits_x = [-1.0, 1.0]
-    vsn_limits_y = [-2.0, 2.0]
-    vsn_limits_z = [0.0, 2.7]
   
     # Callbacks
 
@@ -403,6 +398,7 @@ class CustomControlCenter(Node):
                     new_pose[0] -= self.trans_increment
                 self.controller.desired_pose.position = new_pose
                 self.get_logger().info('Translation along X of ' + str(np.sign(self.TX)*self.trans_increment) + 'meters')
+                self.get_logger().info('New desired position is ' + str(new_pose))
             if (abs(tx) < 0.5) and self.TX != 0:
                 self.TX = 0
 
@@ -415,6 +411,7 @@ class CustomControlCenter(Node):
                     new_pose[1] -= self.trans_increment
                 self.controller.desired_pose.position = new_pose
                 self.get_logger().info('Translation along Y of ' + str(np.sign(self.TY)*self.trans_increment) + 'meters')
+                self.get_logger().info('New desired position is ' + str(new_pose))
             if (abs(ty) < 0.5) and self.TY != 0:
                 self.TY = 0
             
@@ -427,6 +424,7 @@ class CustomControlCenter(Node):
                     new_pose[2] -= self.trans_increment
                 self.controller.desired_pose.position = new_pose
                 self.get_logger().info('Translation along Z of ' + str(np.sign(self.TZ)*self.trans_increment) + 'meters')
+                self.get_logger().info('New desired position is ' + str(new_pose))
             if (abs(tz) < 0.5) and self.TZ != 0:
                 self.TZ = 0
 
@@ -439,6 +437,7 @@ class CustomControlCenter(Node):
                     new_pose[0] += self.pitch_roll_increment
                 self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
                 self.get_logger().info('Rotation along X of ' + str(np.sign(self.RX)*self.pitch_roll_increment) + 'degrees')
+                self.get_logger().info('New desired orientiation is ' + str(new_pose))
             if (abs(rx) < 0.5) and self.RX != 0:
                 self.RX = 0
 
@@ -450,7 +449,8 @@ class CustomControlCenter(Node):
                 elif self.RY < 0:
                     new_pose[1] -= self.pitch_roll_increment
                 self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
-                self.get_logger().info('Rotation along Y of ' + str(np.sign(self.RZ)*self.pitch_roll_increment) + 'degrees')
+                self.get_logger().info('Rotation along Y of ' + str(np.sign(self.RY)*self.pitch_roll_increment) + 'degrees')
+                self.get_logger().info('New desired orientiation is ' + str(new_pose))
             if (abs(ry) < 0.5) and self.RY != 0:
                 self.RY = 0
 
@@ -463,6 +463,7 @@ class CustomControlCenter(Node):
                     new_pose[2] -= self.yaw_increment
                 self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
                 self.get_logger().info('Rotation along Z of ' + str(np.sign(self.RZ)*self.yaw_increment) + 'degrees')
+                self.get_logger().info('New desired orientiation is ' + str(new_pose))
             if (abs(rz) < 0.5) and self.RZ != 0:
                 self.RZ = 0
 
@@ -696,7 +697,7 @@ class CustomControlCenter(Node):
 
     def landing(self):
         error = np.linalg.norm(self.land_pose.position - self.real_pose.position)
-        if error < 0.15:
+        if error < 0.15 and np.linalg.norm(self.real_pose.velocity) < 0.1:
             self.landing_flag = False
             self.switch_landed()
 
@@ -704,12 +705,19 @@ class CustomControlCenter(Node):
 
     def main_loop(self):
         pass
+    
+    max_computed_thrust = 10000.0
+    bat_v = 0.0
 
     def battery_loop(self):
         self.max_computed_thrust = self.max_thrust() - (self. bat_discharge_a()*self.bat_v + self.bat_discharge_b())
 
     # Special actions
 
+
+    vsn_limits_x = [-1.0, 1.0]
+    vsn_limits_y = [-2.0, 2.0]
+    vsn_limits_z = [0.0, 2.7]
     
     def virtual_safety_net(self):
         if self.controller.type is Custom_Controller_Type.GEOMETRIC:
@@ -732,6 +740,21 @@ class CustomControlCenter(Node):
                 self.controller.desired_pose.position = np.fromstring(self.d_position(), sep=",")
                 self.controller.desired_pose.rotation = Quaternion()
 
+    rot_limits = 15.0
+
+    def rotation_security(self):
+        if self.controller.type is Custom_Controller_Type.GEOMETRIC:
+            rot_trigger = False
+            desired_rotation = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
+            real_rotation = R.from_quat(np.roll(self.real_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
+            desired_rotation_compound = np.sqrt(np.square(desired_rotation[0])+np.square(desired_rotation[1]))
+            real_rotation_compound = np.sqrt(np.square(real_rotation[0])+np.square(real_rotation[1]))
+            if desired_rotation_compound > self.rot_limits or real_rotation_compound > self.rot_limits:
+                rot_trigger = True
+            if rot_trigger == True:
+                self.get_logger().info("Rotation Securtity triggered, attempting return to horizontal orientation")
+                self.reset_trajectory_client.call_async(Empty.Request())
+                self.controller.desired_pose.rotation = Quaternion()
 
     def controller_execute(self):
         self.sec = self.odom.header.stamp.sec
@@ -753,6 +776,7 @@ class CustomControlCenter(Node):
                 if self.landing_flag:
                     self.landing()
                 if self.experiment_started:
+                    self.rotation_security()
                     self.virtual_safety_net()
                     control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
                     self.direct_motor_control_transfer(control)
