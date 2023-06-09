@@ -697,7 +697,7 @@ class CustomControlCenter(Node):
 
     def landing(self):
         error = np.linalg.norm(self.land_pose.position - self.real_pose.position)
-        if error < 0.15 and np.linalg.norm(self.real_pose.velocity) < 0.1:
+        if error < 0.15 and np.linalg.norm(self.real_pose.velocity) < 0.15:
             self.landing_flag = False
             self.switch_landed()
 
@@ -724,20 +724,32 @@ class CustomControlCenter(Node):
             vsn_trigger = False
             if self.controller.desired_pose.position[0] < self.vsn_limits_x[0] or self.real_pose.position[0] < self.vsn_limits_x[0]:
                 vsn_trigger = True
+                new_pose = self.controller.desired_pose.position
+                new_pose[0] = self.vsn_limits_x[0] + 2*self.trans_increment
             if self.controller.desired_pose.position[0] > self.vsn_limits_x[1] or self.real_pose.position[0] > self.vsn_limits_x[1]:
                 vsn_trigger = True
+                new_pose = self.controller.desired_pose.position
+                new_pose[0] = self.vsn_limits_x[1] - 2*self.trans_increment
             if self.controller.desired_pose.position[1] < self.vsn_limits_y[0] or self.real_pose.position[1] < self.vsn_limits_y[0]:
                 vsn_trigger = True
+                new_pose = self.controller.desired_pose.position
+                new_pose[1] = self.vsn_limits_y[0] + 2*self.trans_increment
             if self.controller.desired_pose.position[1] > self.vsn_limits_y[1] or self.real_pose.position[1] > self.vsn_limits_y[1]:
                 vsn_trigger = True
+                new_pose = self.controller.desired_pose.position
+                new_pose[1] = self.vsn_limits_y[1] - 2*self.trans_increment
             if self.controller.desired_pose.position[2] < self.vsn_limits_z[0] or self.real_pose.position[2] < self.vsn_limits_z[0]:
                 vsn_trigger = True
+                new_pose = self.controller.desired_pose.position
+                new_pose[2] = self.vsn_limits_z[0] + 2*self.trans_increment
             if self.controller.desired_pose.position[2] > self.vsn_limits_z[1] or self.real_pose.position[2] > self.vsn_limits_z[1]:
                 vsn_trigger = True
+                new_pose = self.controller.desired_pose.position
+                new_pose[2] = self.vsn_limits_z[1] - 2*self.trans_increment
             if vsn_trigger == True:
                 self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose")
                 self.reset_trajectory_client.call_async(Empty.Request())
-                self.controller.desired_pose.position = np.fromstring(self.d_position(), sep=",")
+                self.controller.desired_pose.position = new_pose
                 self.controller.desired_pose.rotation = Quaternion()
 
     rot_limits = 15.0
