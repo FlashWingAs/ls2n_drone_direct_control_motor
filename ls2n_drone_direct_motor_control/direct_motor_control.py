@@ -35,7 +35,8 @@ from ls2n_drone_bridge.common import (
 )
 from ls2n_drone_direct_motor_control.custom_controllers import (
     Test_Controller,
-    Geometric_Controller
+    Geometric_Controller,
+    Velocity_Controller
 )
 from ls2n_drone_direct_motor_control.custom_common import (
     Custom_Controller_Type,
@@ -69,43 +70,61 @@ class CustomControlCenter(Node):
                 "Custom controller selection"
             ],
             [
-                "config_switch",
-                False,
-                ParameterType.PARAMETER_BOOL,
-                "Switch if PID config is default or handpicked"
-            ],
-            [
-                "pid_trans_p",
+                "geom_pid_trans_p",
                 "0.0, 0.0, 0.0",
                 ParameterType.PARAMETER_STRING,
                 "Switch if PID config is default or handpicked"
             ],
             [
-                "pid_trans_i",
+                "geom_pid_trans_i",
                 "0.0, 0.0, 0.0",
                 ParameterType.PARAMETER_STRING,
                 "Switch if PID config is default or handpicked"
             ],
             [
-                "pid_trans_d",
+                "geom_pid_trans_d",
                 "0.0, 0.0, 0.0",
                 ParameterType.PARAMETER_STRING,
                 "Switch if PID config is default or handpicked"
             ],
             [
-                "pid_rot_p",
+                "geom_pid_rot_p",
                 "0.0, 0.0, 0.0",
                 ParameterType.PARAMETER_STRING,
                 "Switch if PID config is default or handpicked"
             ],
             [
-                "pid_rot_i",
+                "geom_pid_rot_i",
                 "0.0, 0.0, 0.0",
                 ParameterType.PARAMETER_STRING,
                 "Switch if PID config is default or handpicked"
             ],
             [
-                "pid_rot_d",
+                "geom_pid_rot_d",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
+            ],
+            [
+                "vel_pid_trans_p",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
+            ],
+            [
+                "vel_pid_trans_i",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
+            ],
+            [
+                "vel_pid_rot_p",
+                "0.0, 0.0, 0.0",
+                ParameterType.PARAMETER_STRING,
+                "Switch if PID config is default or handpicked"
+            ],
+            [
+                "vel_pid_rot_i",
                 "0.0, 0.0, 0.0",
                 ParameterType.PARAMETER_STRING,
                 "Switch if PID config is default or handpicked"
@@ -163,19 +182,28 @@ class CustomControlCenter(Node):
         
         # Automatic detection of custom parameters
 
-        self.custom_pid_switch = False                   # True if using default pid parameters set in the controller
-        if self.pid_trans_p() != "0.0, 0.0, 0.0":
-            self.custom_pid_switch = True
-        if self.pid_trans_i() != "0.0, 0.0, 0.0":
-            self.custom_pid_switch = True
-        if self.pid_trans_d() != "0.0, 0.0, 0.0":
-            self.custom_pid_switch = True
-        if self.pid_rot_p() != "0.0, 0.0, 0.0":
-            self.custom_pid_switch = True
-        if self.pid_rot_i() != "0.0, 0.0, 0.0":
-            self.custom_pid_switch = True
-        if self.pid_rot_d() != "0.0, 0.0, 0.0":
-            self.custom_pid_switch = True
+        self.custom_geom_pid_switch = False                   # True if using default pid parameters set in the controller
+        if self.geom_pid_trans_p() != "0.0, 0.0, 0.0":
+            self.geom_custom_pid_switch = True
+        if self.geom_pid_trans_i() != "0.0, 0.0, 0.0":
+            self.geom_custom_pid_switch = True
+        if self.geom_pid_trans_d() != "0.0, 0.0, 0.0":
+            self.geom_custom_pid_switch = True
+        if self.geom_pid_rot_p() != "0.0, 0.0, 0.0":
+            self.geom_custom_pid_switch = True
+        if self.geom_pid_rot_i() != "0.0, 0.0, 0.0":
+            self.geom_custom_pid_switch = True
+        if self.geom_pid_rot_d() != "0.0, 0.0, 0.0":
+            self.geom_custom_pid_switch = True
+        self.custom_vel_pid_switch = False                   # True if using default pid parameters set in the controller
+        if self.vel_pid_trans_p() != "0.0, 0.0, 0.0":
+            self.vel_custom_pid_switch = True
+        if self.vel_pid_trans_i() != "0.0, 0.0, 0.0":
+            self.vel_custom_pid_switch = True
+        if self.vel_pid_rot_p() != "0.0, 0.0, 0.0":
+            self.vel_custom_pid_switch = True
+        if self.vel_pid_rot_i() != "0.0, 0.0, 0.0":
+            self.vel_custom_pid_switch = True
         self.anti_windup_trans_switch = False
         self.anti_windup_rot_switch = False
         if self.anti_windup_trans() != "0.0, 0.0, 0.0":
@@ -300,27 +328,52 @@ class CustomControlCenter(Node):
 
     def parameters_callback(self, params):
         for param in params:
-            if self.controller is not None and self.controller.type == Custom_Controller_Type.GEOMETRIC:
-                if param.name == "pid_trans_p":
-                    self.controller.PID.trans_p = np.fromstring(param.value, sep = ",")
-                    self.controller.PID.update()
-                if param.name == "pid_trans_i":
-                    self.controller.PID.trans_i = np.fromstring(param.value, sep = ",")
-                    self.controller.integral_reset(trans = True)
-                    self.controller.PID.update()
-                if param.name == "pid_trans_d":
-                    self.controller.PID.trans_d = np.fromstring(param.value, sep = ",")
-                    self.controller.PID.update()
-                if param.name == "pid_rot_p":
-                    self.controller.PID.rot_p = np.fromstring(param.value, sep = ",")
-                    self.controller.PID.update()
-                if param.name == "pid_rot_i":
-                    self.controller.PID.rot_i = np.fromstring(param.value, sep = ",")
-                    self.controller.integral_reset(rot = True)
-                    self.controller.PID.update()
-                if param.name == "pid_rot_d":
-                    self.controller.PID.rot_d = np.fromstring(param.value, sep = ",")
-                    self.controller.PID.update()
+            if self.controller is not None and self.controller.type != Custom_Controller_Type.TEST:
+                if param.name == "select_controller":
+                        self.contoller_selection(self.select_controller())
+                        self.init_controller()
+                if self.controller.type == Custom_Controller_Type.GEOMETRIC:
+                    if param.name == "geom_pid_trans_p":
+                        self.controller.PID.trans_p = np.fromstring(param.value, sep = ",")
+                        self.controller.PID.update()
+                    if param.name == "geom_pid_trans_i":
+                        self.controller.PID.trans_i = np.fromstring(param.value, sep = ",")
+                        self.controller.integral_reset(trans = True)
+                        self.controller.PID.update()
+                    if param.name == "geom_pid_trans_d":
+                        self.controller.PID.trans_d = np.fromstring(param.value, sep = ",")
+                        self.controller.PID.update()
+                    if param.name == "geom_pid_rot_p":
+                        self.controller.PID.rot_p = np.fromstring(param.value, sep = ",")
+                        self.controller.PID.update()
+                    if param.name == "geom_pid_rot_i":
+                        self.controller.PID.rot_i = np.fromstring(param.value, sep = ",")
+                        self.controller.integral_reset(rot = True)
+                        self.controller.PID.update()
+                    if param.name == "geom_pid_rot_d":
+                        self.controller.PID.rot_d = np.fromstring(param.value, sep = ",")
+                        self.controller.PID.update()
+                if self.controller.type == Custom_Controller_Type.VELOCITY:
+                    if param.name == "vel_pid_trans_p":
+                        self.controller.PID.trans_p = np.fromstring(param.value, sep = ",")
+                        self.controller.PID.update()
+                    if param.name == "vel_pid_trans_i":
+                        self.controller.PID.trans_i = np.fromstring(param.value, sep = ",")
+                        self.controller.integral_reset(trans = True)
+                        self.controller.PID.update()
+                    if param.name == "vel_pid_trans_d":
+                        self.controller.PID.trans_d = np.fromstring(param.value, sep = ",")
+                        self.controller.PID.update()
+                    if param.name == "vel_pid_rot_p":
+                        self.controller.PID.rot_p = np.fromstring(param.value, sep = ",")
+                        self.controller.PID.update()
+                    if param.name == "vel_pid_rot_i":
+                        self.controller.PID.rot_i = np.fromstring(param.value, sep = ",")
+                        self.controller.integral_reset(rot = True)
+                        self.controller.PID.update()
+                    if param.name == "vel_pid_rot_d":
+                        self.controller.PID.rot_d = np.fromstring(param.value, sep = ",")
+                        self.controller.PID.update()
                 if param.name == "d_position":
                     self.controller.desired_pose.position = np.fromstring(param.value, sep = ',')
                 if param.name == "d_rot_euler":
@@ -342,9 +395,9 @@ class CustomControlCenter(Node):
                         self.anti_windup_rot_switch = True
                         self.get_logger().info("Rotationnal anti-windup activated")
                 
-                self.get_logger().info("Parameter succesfully updated")
+                self.get_logger().info("Parameter succesfully updated live")
             else:
-                self.get_logger().info("Controller not initialised, cannot update parameters")
+                self.get_logger().info("Parameter updated, will be applied next controller initialisation")
         return SetParametersResult(successful=True)
 
     def status_update_callback(self, rcvd_msg):
@@ -372,6 +425,8 @@ class CustomControlCenter(Node):
     RZ_ref = 3
     L3_ref = 9
     R3_ref = 10
+    RB_ref = 5
+    LB_ref = 4
     START_ref = 7
     SELECT_ref = 6
     TX = 0
@@ -382,11 +437,10 @@ class CustomControlCenter(Node):
     RZ = 0
     L3 = 0
     R3 = 0
+    RB = 0
+    LB = 0
     START = 0
     SELECT = 0
-    trans_increment = 0.1       # meters
-    pitch_roll_increment = 2.0  # degrees
-    yaw_increment = 5.0
 
     def joystick_callback(self, data):
         tx = np.round(data.axes[self.TX_ref], 1)
@@ -397,101 +451,83 @@ class CustomControlCenter(Node):
         rz = np.round(data.axes[self.RZ_ref], 1)
         l3 = np.round(data.buttons[self.L3_ref], 1)
         r3 = np.round(data.buttons[self.R3_ref], 1)
+        rb = np.round(data.buttons[self.RB_ref], 1)
+        lb = np.round(data.buttons[self.LB_ref], 1)
         start = np.round(data.buttons[self.START_ref], 1)
         select = np.round(data.buttons[self.SELECT_ref], 1)
         if self.experiment_started:
 
             if (abs(tx) >= 0.5) and self.TX == 0:
                 self.TX = np.sign(tx)
-                new_pose = self.controller.desired_pose.position
                 if self.TX > 0 :
-                    new_pose[0] += self.trans_increment
+                    self.controller.joystick_input(1, 1)
                 elif self.TX < 0:
-                    new_pose[0] -= self.trans_increment
-                self.controller.desired_pose.position = new_pose
-                self.get_logger().info('Translation along X of ' + str(np.sign(self.TX)*self.trans_increment) + 'meters')
-                self.get_logger().info('New desired position is ' + str(new_pose))
+                    self.controller.joystick_input(1, -1)
             if (abs(tx) < 0.5) and self.TX != 0:
                 self.TX = 0
 
             if (abs(ty) >= 0.5) and self.TY == 0:
                 self.TY = np.sign(ty)
-                new_pose = self.controller.desired_pose.position
                 if self.TY > 0 :
-                    new_pose[1] += self.trans_increment
+                    self.controller.joystick_input(2, 1)
                 elif self.TY < 0:
-                    new_pose[1] -= self.trans_increment
-                self.controller.desired_pose.position = new_pose
-                self.get_logger().info('Translation along Y of ' + str(np.sign(self.TY)*self.trans_increment) + 'meters')
-                self.get_logger().info('New desired position is ' + str(new_pose))
+                    self.controller.joystick_input(2, -1)
             if (abs(ty) < 0.5) and self.TY != 0:
                 self.TY = 0
             
             if (abs(tz) >= 0.5) and self.TZ == 0:
                 self.TZ = np.sign(tz)
-                new_pose = self.controller.desired_pose.position
                 if self.TZ > 0 :
-                    new_pose[2] += self.trans_increment
+                    self.controller.joystick_input(3, 1)
                 elif self.TZ < 0:
-                    new_pose[2] -= self.trans_increment
-                self.controller.desired_pose.position = new_pose
-                self.get_logger().info('Translation along Z of ' + str(np.sign(self.TZ)*self.trans_increment) + 'meters')
-                self.get_logger().info('New desired position is ' + str(new_pose))
+                    self.controller.joystick_input(3, -1)
             if (abs(tz) < 0.5) and self.TZ != 0:
                 self.TZ = 0
 
             if (abs(rx) >= 0.5) and self.RX == 0:
                 self.RX = np.sign(rx)
-                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
                 if self.RX > 0 :
-                    new_pose[0] -= self.pitch_roll_increment
+                    self.controller.joystick_input(4, -1)
                 elif self.RX < 0:
-                    new_pose[0] += self.pitch_roll_increment
-                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
-                self.get_logger().info('Rotation along X of ' + str(np.sign(self.RX)*self.pitch_roll_increment) + 'degrees')
-                self.get_logger().info('New desired orientiation is ' + str(new_pose))
+                    self.controller.joystick_input(4, 1)
             if (abs(rx) < 0.5) and self.RX != 0:
                 self.RX = 0
 
             if (abs(ry) >= 0.5) and self.RY == 0:
                 self.RY = np.sign(ry)
-                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
                 if self.RY > 0 :
-                    new_pose[1] += self.pitch_roll_increment
+                    self.controller.joystick_input(5, 1)
                 elif self.RY < 0:
-                    new_pose[1] -= self.pitch_roll_increment
-                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
-                self.get_logger().info('Rotation along Y of ' + str(np.sign(self.RY)*self.pitch_roll_increment) + 'degrees')
-                self.get_logger().info('New desired orientiation is ' + str(new_pose))
+                    self.controller.joystick_input(5, -1)
             if (abs(ry) < 0.5) and self.RY != 0:
                 self.RY = 0
 
             if (abs(rz) >= 0.5) and self.RZ == 0:
                 self.RZ = np.sign(rz)
-                new_pose = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
                 if self.RZ > 0 :
-                    new_pose[2] += self.yaw_increment
+                    self.controller.joystick_input(6, 1)
                 elif self.RZ < 0:
-                    new_pose[2] -= self.yaw_increment
-                self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
-                self.get_logger().info('Rotation along Z of ' + str(np.sign(self.RZ)*self.yaw_increment) + 'degrees')
-                self.get_logger().info('New desired orientiation is ' + str(new_pose))
+                    self.controller.joystick_input(6, -1)
             if (abs(rz) < 0.5) and self.RZ != 0:
                 self.RZ = 0
 
             if (abs(l3 >= 0.5)) and self.L3 == 0:
                 self.L3 = 1
-                new_pose = np.fromstring(self.d_position(), sep=",")
-                self.controller.desired_pose.position = new_pose
-                self.get_logger().info('Translation reset to ' + str(new_pose))
+                new_pose = Custom_Pose()
+                new_pose.position = np.fromstring(self.d_position(), sep=",")
+                new_pose.rotation = self.controller.desired_pose.rotation
+                self.controller.desired_pose = new_pose
+                self.get_logger().info('Translation reset to ' + str(new_pose.position))
             if (abs(l3 < 0.5) and self.L3) != 0:
                 self.L3 = 0
 
             if (abs(r3 >= 0.5)) and self.R3 == 0:
                 self.R3 = 1
-                new_pose = Quaternion()
-                self.controller.desired_pose.rotation = new_pose
-                self.get_logger().info('Rotation reset to ' + str(new_pose))
+                new_pose = Custom_Pose()
+                new_pose.rotation = Quaternion()
+                new_pose.position = self.controller.desired_pose.position
+                self.controller.desired_pose = new_pose
+                self.get_logger().info('Rotation reset to ' + str(new_pose.rotation))
             if (abs(r3 < 0.5) and self.R3) != 0:
                 self.R3 = 0
             
@@ -510,8 +546,22 @@ class CustomControlCenter(Node):
                 new_pose.rotation = Quaternion()
                 self.controller.desired_pose = new_pose
                 self.get_logger().info('Stopping and reseting trajectory')
-            if (abs(select < 0.5) and self.SELECT) != 0:
+            if (abs(select < 0.5)) and self.SELECT != 0:
                 self.SELECT = 0
+
+            if (abs(rb >= 0.5)) and self.RB == 0:
+                self.RB = 1
+                self.contoller_selection(2)
+                self.init_controller()
+            if (abs(rb < 0.5)) and self.RB != 0:
+                self.RB = 0
+
+            if (abs(lb >= 0.5)) and self.LB == 0:
+                self.LB = 1
+                self.contoller_selection(3)
+                self.init_controller()
+            if (abs(lb < 0.5)) and self.LB != 0:
+                self.LB = 0
 
     # Publishers
 
@@ -543,7 +593,8 @@ class CustomControlCenter(Node):
         msg.goal_position = self.controller.desired_pose.position.tolist()
         msg.goal_rotation = np.concatenate((np.array([self.controller.desired_pose.rotation.scalar]), self.controller.desired_pose.rotation.vector)).tolist()
         msg.error_position = self.controller.e_pos.tolist()
-        msg._error_rotation = self.controller.e_ang.tolist()
+        msg.error_rotation = self.controller.e_ang.tolist()
+        msg.integral_pos = self.controller.I_e_pos.tolist()
         self.classic_debug_publisher.publish(msg)
 
     def real_pose_debug(self):
@@ -577,31 +628,49 @@ class CustomControlCenter(Node):
         self.take_off_pose_debug_publisher.publish(msg)
 
     # Services
+    def init_controller(self):
+        if self.controller.type == Custom_Controller_Type.TEST:
+            pass
+        if self.controller.type == Custom_Controller_Type.GEOMETRIC:
+            self.controller.m_tot = self.mass()
+            self.desired_altitude = np.fromstring(self.d_position(), sep=",")[2]
+            if self.custom_geom_pid_switch:
+                self.controller.PID = Custom_PID_Param(np.fromstring(self.geom_pid_trans_p(), sep = ','),
+                                                       np.fromstring(self.geom_pid_trans_i(), sep = ','),
+                                                       np.fromstring(self.geom_pid_trans_d(), sep = ','),
+                                                       np.fromstring(self.geom_pid_rot_p(), sep = ','),
+                                                       np.fromstring(self.geom_pid_rot_i(), sep = ','),
+                                                       np.fromstring(self.geom_pid_rot_d(), sep = ','))
+                self.get_logger().info("Initilised wit custom PID parameters")
+            else:
+                self.get_logger().info("Initilised with default PID parameters")
+            if self.anti_windup_trans_switch:
+                self.controller.anti_windup_trans = np.fromstring(self.anti_windup_trans(), sep = ',')
+                self.get_logger().info("Translationnal anti windup activated")
+            if self.anti_windup_rot_switch:
+                self.controller.anti_windup_rot = np.fromstring(self.anti_windup_rot(), sep = ',')
+                self.get_logger().info("Rotationnal anti windup activated")
+            new_pose = Custom_Pose()
+            new_pose.position = np.fromstring(self.d_position(), sep=",")
+            self.controller.desired_pose = new_pose
+        if self.controller.type == Custom_Controller_Type.VELOCITY:
+            self.get_logger().info("VELOCITY controller will be available in-flight. GEOMETRIC controller is used to take off and land")
+            self.controller.m_tot = self.mass()
+            if self.custom_vel_pid_switch:
+                self.controller.PID = Custom_PID_Param(np.fromstring(self.vel_pid_trans_p(), sep = ','),
+                                                       np.fromstring(self.vel_pid_trans_i(), sep = ','),
+                                                       np.zeros(3),
+                                                       np.fromstring(self.vel_pid_rot_p(), sep = ','),
+                                                       np.fromstring(self.vel_pid_rot_i(), sep = ','),
+                                                       np.zeros(3))
+                self.get_logger().info("Initilised wit custom PID parameters")
+            else:
+                self.get_logger().info("Initilised with default PID parameters")
 
     def spin_motors(self, request, response):
         if not self.experiment_started:
             self.contoller_selection(self.select_controller())
-            if self.controller.type == Custom_Controller_Type.GEOMETRIC:
-                self.controller.m_tot = self.mass()
-                self.desired_altitude = np.fromstring(self.d_position(), sep=",")[2]
-                if self.custom_pid_switch:
-                    self.controller.PID = Custom_PID_Param(np.fromstring(self.pid_trans_p(), sep = ','),
-                                                           np.fromstring(self.pid_trans_i(), sep = ','),
-                                                           np.fromstring(self.pid_trans_d(), sep = ','),
-                                                           np.fromstring(self.pid_rot_p(), sep = ','),
-                                                           np.fromstring(self.pid_rot_i(), sep = ','),
-                                                           np.fromstring(self.pid_rot_d(), sep = ','))
-                    self.get_logger().info("Initilised with custom PID parameters")
-                else:
-                    self.get_logger().info("Initilised with default PID parameters")
-                if self.anti_windup_trans_switch:
-                    self.controller.anti_windup_trans = np.fromstring(self.anti_windup_trans(), sep = ',')
-                    self.get_logger().info("Translationnal anti windup activated")
-                if self.anti_windup_rot_switch:
-                    self.controller.anti_windup_rot = np.fromstring(self.anti_windup_rot(), sep = ',')
-                    self.get_logger().info("Rotationnal anti windup activated")
-            if self.controller.type == Custom_Controller_Type.TEST:
-                pass
+            self.init_controller()
             request_out = DroneRequest.Request()
             request_out.request = DroneRequest.Request.SPIN_MOTORS
             self.drone_request_client.call_async(request_out)
@@ -665,16 +734,27 @@ class CustomControlCenter(Node):
 
     # State machine
 
+    selected_controller = 0
+
     def contoller_selection(self, selection):
         match selection:
             case 1:
+                self.selected_controller = 1
                 self.controller = Test_Controller(self)
                 self.get_logger().info("Experiment starting with TEST controller")
             case 2:
+                self.selected_controller = 2
                 self.controller = Geometric_Controller(self)
                 self.get_logger().info("Experiment starting with GEOMETRIC controller")
-    
+            case 3:
+                self.selected_controller = 3
+                self.controller = Velocity_Controller(self)
+                self.get_logger().info("Experiment starting with VELOCITY controller")
+
     def switch_take_off(self):
+        if self.controller.type == Custom_Controller_Type.VELOCITY:
+            self.controller = Geometric_Controller(self)
+            self.init_controller()
         self.take_off_pose.position = self.real_pose.position
         self.take_off_pose.position[2] = self.desired_altitude
         self.controller.desired_pose = self.take_off_pose
@@ -682,11 +762,18 @@ class CustomControlCenter(Node):
         self.get_logger().info("Drone taking off")
 
     def switch_flight(self):
-        self.get_logger().info("Take off complete, heading to desired position")
-        self.controller.desired_pose.position = np.fromstring(self.d_position(), sep=",")
-        self.controller.desired_pose.rotation = Quaternion()
+        if self.selected_controller == 3:
+            self.controller = Velocity_Controller(self)
+            self.init_controller()
+            self.get_logger().info("Take off complete")
+        else:
+            self.get_logger().info("Take off complete, heading to desired position")
+            self.controller.desired_pose.position = np.fromstring(self.d_position(), sep=",")
+            self.controller.desired_pose.rotation = Quaternion()
 
     def switch_land(self):
+        if self.controller.type == Custom_Controller_Type.VELOCITY:
+            self.controller = Geometric_Controller(self)
         self.land_pose.position = self.real_pose.position
         self.land_pose.position[2] = 0.3
         self.controller.desired_pose = self.land_pose
@@ -730,55 +817,58 @@ class CustomControlCenter(Node):
     vsn_limits_x = [-1.0, 1.0]
     vsn_limits_y = [-2.0, 2.0]
     vsn_limits_z = [0.0, 2.7]
+    safe_return = 0.2
     
     def virtual_safety_net(self):
-        if self.controller.type is Custom_Controller_Type.GEOMETRIC:
-            vsn_trigger = False
-            if self.controller.desired_pose.position[0] < self.vsn_limits_x[0] or self.real_pose.position[0] < self.vsn_limits_x[0]:
-                vsn_trigger = True
-                new_pose = self.controller.desired_pose.position
-                new_pose[0] = self.vsn_limits_x[0] + 2*self.trans_increment
-            if self.controller.desired_pose.position[0] > self.vsn_limits_x[1] or self.real_pose.position[0] > self.vsn_limits_x[1]:
-                vsn_trigger = True
-                new_pose = self.controller.desired_pose.position
-                new_pose[0] = self.vsn_limits_x[1] - 2*self.trans_increment
-            if self.controller.desired_pose.position[1] < self.vsn_limits_y[0] or self.real_pose.position[1] < self.vsn_limits_y[0]:
-                vsn_trigger = True
-                new_pose = self.controller.desired_pose.position
-                new_pose[1] = self.vsn_limits_y[0] + 2*self.trans_increment
-            if self.controller.desired_pose.position[1] > self.vsn_limits_y[1] or self.real_pose.position[1] > self.vsn_limits_y[1]:
-                vsn_trigger = True
-                new_pose = self.controller.desired_pose.position
-                new_pose[1] = self.vsn_limits_y[1] - 2*self.trans_increment
-            if self.controller.desired_pose.position[2] < self.vsn_limits_z[0] or self.real_pose.position[2] < self.vsn_limits_z[0]:
-                vsn_trigger = True
-                new_pose = self.controller.desired_pose.position
-                new_pose[2] = self.vsn_limits_z[0] + 2*self.trans_increment
-            if self.controller.desired_pose.position[2] > self.vsn_limits_z[1] or self.real_pose.position[2] > self.vsn_limits_z[1]:
-                vsn_trigger = True
-                new_pose = self.controller.desired_pose.position
-                new_pose[2] = self.vsn_limits_z[1] - 2*self.trans_increment
-            if vsn_trigger == True:
-                self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose")
-                self.reset_trajectory_client.call_async(Empty.Request())
-                self.controller.desired_pose.position = new_pose
-                self.controller.desired_pose.rotation = Quaternion()
+        vsn_trigger = False
+        if self.controller.desired_pose.position[0] < self.vsn_limits_x[0] or self.real_pose.position[0] < self.vsn_limits_x[0]:
+            vsn_trigger = True
+            new_pose = self.controller.desired_pose.position
+            new_pose[0] = self.vsn_limits_x[0] + self.safe_return
+        if self.controller.desired_pose.position[0] > self.vsn_limits_x[1] or self.real_pose.position[0] > self.vsn_limits_x[1]:
+            vsn_trigger = True
+            new_pose = self.controller.desired_pose.position
+            new_pose[0] = self.vsn_limits_x[1] - self.safe_return
+        if self.controller.desired_pose.position[1] < self.vsn_limits_y[0] or self.real_pose.position[1] < self.vsn_limits_y[0]:
+            vsn_trigger = True
+            new_pose = self.controller.desired_pose.position
+            new_pose[1] = self.vsn_limits_y[0] + self.safe_return
+        if self.controller.desired_pose.position[1] > self.vsn_limits_y[1] or self.real_pose.position[1] > self.vsn_limits_y[1]:
+            vsn_trigger = True
+            new_pose = self.controller.desired_pose.position
+            new_pose[1] = self.vsn_limits_y[1] - self.safe_return
+        if self.controller.desired_pose.position[2] < self.vsn_limits_z[0] or self.real_pose.position[2] < self.vsn_limits_z[0]:
+            vsn_trigger = True
+            new_pose = self.controller.desired_pose.position
+            new_pose[2] = self.vsn_limits_z[0] + self.safe_return
+        if self.controller.desired_pose.position[2] > self.vsn_limits_z[1] or self.real_pose.position[2] > self.vsn_limits_z[1]:
+            vsn_trigger = True
+            new_pose = self.controller.desired_pose.position
+            new_pose[2] = self.vsn_limits_z[1] - self.safe_return
+        if vsn_trigger == True:
+            self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose")
+            self.contoller_selection(2)
+            self.init_controller()
+            self.reset_trajectory_client.call_async(Empty.Request())
+            self.controller.desired_pose.position = new_pose
+            self.controller.desired_pose.rotation = Quaternion()
 
     rot_limits = 15.0
 
     def rotation_security(self):
-        if self.controller.type is Custom_Controller_Type.GEOMETRIC:
-            rot_trigger = False
-            desired_rotation = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
-            real_rotation = R.from_quat(np.roll(self.real_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
-            desired_rotation_compound = np.sqrt(np.square(desired_rotation[0])+np.square(desired_rotation[1]))
-            real_rotation_compound = np.sqrt(np.square(real_rotation[0])+np.square(real_rotation[1]))
-            if desired_rotation_compound > self.rot_limits or real_rotation_compound > self.rot_limits:
-                rot_trigger = True
-            if rot_trigger == True:
-                self.get_logger().info("Rotation Securtity triggered, attempting return to horizontal orientation")
-                self.reset_trajectory_client.call_async(Empty.Request())
-                self.controller.desired_pose.rotation = Quaternion()
+        rot_trigger = False
+        desired_rotation = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
+        real_rotation = R.from_quat(np.roll(self.real_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
+        desired_rotation_compound = np.sqrt(np.square(desired_rotation[0])+np.square(desired_rotation[1]))
+        real_rotation_compound = np.sqrt(np.square(real_rotation[0])+np.square(real_rotation[1]))
+        if desired_rotation_compound > self.rot_limits or real_rotation_compound > self.rot_limits:
+            rot_trigger = True
+        if rot_trigger == True:
+            self.get_logger().info("Rotation Securtity triggered, attempting return to horizontal orientation")
+            self.contoller_selection(2)
+            self.init_controller()
+            self.reset_trajectory_client.call_async(Empty.Request())
+            self.controller.desired_pose.rotation = Quaternion()
 
     def controller_execute(self):
         self.sec = self.odom.header.stamp.sec
@@ -802,7 +892,10 @@ class CustomControlCenter(Node):
                 if self.experiment_started:
                     self.rotation_security()
                     self.virtual_safety_net()
-                    control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
+                    if self.controller.type == Custom_Controller_Type.GEOMETRIC:
+                        control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
+                    if self.controller.type == Custom_Controller_Type.VELOCITY:
+                        control = self.controller.do_control(self.real_pose, self.step_size)
                     self.direct_motor_control_transfer(control)
 
                     # Debug

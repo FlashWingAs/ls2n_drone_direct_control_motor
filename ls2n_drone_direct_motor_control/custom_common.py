@@ -23,7 +23,8 @@ class Custom_Pose:
 class Custom_Controller_Type(IntEnum):
     NONE = (0,)
     TEST = (1,)
-    GEOMETRIC = 2
+    GEOMETRIC = (2,)
+    VELOCITY = (3)
 
 class Custom_PID_Param:
     def __init__(self,

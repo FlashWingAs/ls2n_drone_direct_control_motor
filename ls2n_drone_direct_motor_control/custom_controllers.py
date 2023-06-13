@@ -14,6 +14,42 @@ class Custom_Controller:
         self.type = Custom_Controller_Type.NONE
         self.desired_pose = Custom_Pose()
 
+        # Geometry
+        self.pi = np.pi
+        self.Lx = 0.686/2
+        self.alpha = self.pi/6
+        self.g = 9.81
+        self.m_tot = 3.3981
+        self.I1 = 0.323
+        self.I2 = self.I1
+        self.I3 = 0.484
+        self.I = np.diag(np.array([self.I1, self.I2, self.I3]))
+        self.I_inv = np.linalg.pinv(self.I)
+        self.lambda_arms = np.array([-self.pi/2, self.pi/2, self.pi/6, -5*self.pi/6, -self.pi/6, 5*self.pi/6])
+        self.alpha_arms = self.alpha*np.array([-1, 1, -1, 1, 1, -1])
+        self.clock = np.array([1, -1, 1, -1, -1, 1]) # Clockwise or Anti-clockwise
+        self.d = 0.06 #0.745
+
+        # Mixer init
+        self.B_P_Pi = np.zeros((6,3,1))
+        self.B_R_Pi = np.zeros((6,3,3))
+        self.F = np.zeros((3,6))
+        self.H = np.zeros((3,6))
+        self.v_B = np.zeros(6)
+        for i in range(6):
+            self.B_P_Pi[i, :, :] = self.Lx*np.transpose(np.array([[np.cos(self.lambda_arms[i]), np.sin(self.lambda_arms[i]), 0]]))
+            self.B_R_Pi[i, :, :] = np.array([[np.cos(self.lambda_arms[i]), -np.sin(self.lambda_arms[i])*np.cos(self.alpha_arms[i]), np.sin(self.lambda_arms[i])*np.sin(self.alpha_arms[i])], 
+                                             [np.sin(self.lambda_arms[i]), np.cos(self.lambda_arms[i])*np.cos(self.alpha_arms[i]), -np.cos(self.lambda_arms[i])*np.sin(self.alpha_arms[i])], 
+                                             [0, np.sin(self.alpha_arms[i]), np.cos(self.alpha_arms[i])]])
+            self.F[:, [i]] = np.reshape(self.B_R_Pi[[i], :, 2], (3, 1))
+            self.H[:, [i]] = np.cross(np.reshape(self.B_P_Pi[[i], :, :], (3, 1)),
+                                np.reshape(self.B_R_Pi[[i], :, 2], (3, 1)),
+                                axis=0) \
+                        + self.clock[i]*self.d*np.reshape(self.B_R_Pi[[i], :, 2], (3, 1))
+
+        self.Jb = np.concatenate((self.F, self.H), axis=0)
+
+
     def update_trajectory_setpoint(self, msg):
         euler_vector = np.array([0.0, 0.0, 0.0])
         for index, coordinate in enumerate(msg.joint_names):
@@ -65,6 +101,9 @@ class Custom_Controller:
     def anti_windup(self, _):
         pass
 
+    def joystick_input(self, _):
+        pass
+
 class Test_Controller(Custom_Controller):
     def __init__(self, node):
         super().__init__(node)
@@ -79,22 +118,7 @@ class Geometric_Controller(Custom_Controller):
     def __init__(self, node):
         super().__init__(node)
         self.type = Custom_Controller_Type.GEOMETRIC
-
-        # Geometry
-        self.pi = np.pi
-        self.Lx = 0.686/2
-        self.alpha = self.pi/3
-        self.g = 9.81
-        self.m_tot = 3.3981
-        self.I1 = 0.323
-        self.I2 = self.I1
-        self.I3 = 0.484
-        self.I = np.diag(np.array([self.I1, self.I2, self.I3]))
-        self.I_inv = np.linalg.pinv(self.I)
-        self.lambda_arms = np.array([-self.pi/2, self.pi/2, self.pi/6, -5*self.pi/6, -self.pi/6, 5*self.pi/6])
-        self.alpha_arms = self.alpha*np.array([-1, 1, -1, 1, 1, -1])
-        self.clock = np.array([1, -1, 1, -1, -1, 1]) # Clockwise or Anti-clockwise
-        self.d = 0.06 #0.745
+        
         self.default_pid_param_trans_p = np.array([15.0, 15.0, 10.0])
         self.default_pid_param_trans_i = np.array([2.0, 2.0, 2.0])
         self.default_pid_param_trans_d = np.array([15.0, 15.0, 15.0])
@@ -103,27 +127,8 @@ class Geometric_Controller(Custom_Controller):
         self.default_pid_param_rot_d = np.array([4.0, 4.0, 4.0])
         self.PID = Custom_PID_Param(self.default_pid_param_trans_p, self.default_pid_param_trans_i, self.default_pid_param_trans_d,
                                     self.default_pid_param_rot_p, self.default_pid_param_rot_i, self.default_pid_param_rot_d)
-        # Mixer init
-        self.B_P_Pi = np.zeros((6,3,1))
-        self.B_R_Pi = np.zeros((6,3,3))
-        self.F = np.zeros((3,6))
-        self.H = np.zeros((3,6))
-        self.v_B = np.zeros(6)
-        for i in range(6):
-            temp_lambda = R.from_euler('ZYX', np.array([self.lambda_arms[i], 0, 0])).as_matrix()
-            temp_alpha = R.from_euler('ZYX', np.array([0, 0, self.alpha_arms[i]])).as_matrix()
-            self.B_P_Pi[i, :, :] = np.matmul(temp_lambda, np.transpose([np.array([self.Lx, 0, 0])]))
-            self.B_R_Pi[i, :, :] = np.matmul(temp_lambda, temp_alpha)
-            self.F[:, [i]] = np.reshape(self.B_R_Pi[[i], :, 2], (3, 1))
-            self.H[:, [i]] = np.cross(np.reshape(self.B_P_Pi[[i], :, :], (3, 1)),
-                                np.reshape(self.B_R_Pi[[i], :, 2], (3, 1)),
-                                axis=0) \
-                        + self.clock[i]*self.d*np.reshape(self.B_R_Pi[[i], :, 2], (3, 1))
-
-        self.Jb = np.concatenate((self.F, self.H), axis=0)
-
+        
         # Anti Windup
-
         self.anti_windup_trans = np.zeros(3)
         self.anti_windup_rot = np.zeros(3)
 
@@ -135,6 +140,10 @@ class Geometric_Controller(Custom_Controller):
         self.e_ang = np.zeros(3)
         self.D_e_ang = np.zeros(3)
         self.I_e_ang = np.zeros(3)
+        
+        self.trans_increment = 0.1       # meters
+        self.pitch_roll_increment = 2.0  # degrees
+        self.yaw_increment = 5.0
 
     def integral_reset(self, trans = False, rot = False):
         if trans:
@@ -158,11 +167,28 @@ class Geometric_Controller(Custom_Controller):
             if self.I_e_ang[2] > self.anti_windup_rot[2]:
                 self.I_e_ang[2] = self.anti_windup_rot[2]
 
+    def joystick_input(self, axis, direction):
+        string_axis = ['X', 'Y', 'Z']
+        if axis <= 3:
+            new_pose = self.desired_pose.position
+            new_pose[axis - 1] += direction*self.trans_increment
+            self.desired_pose.position = new_pose
+            self.node.get_logger().info('Translation along ' + string_axis[axis -  1] + ' of ' + str(direction*self.trans_increment) + 'meters')
+            self.node.get_logger().info('New desired position is ' + str(new_pose))
+        else:
+            axis -= 3
+            new_pose = R.from_quat(np.roll(self.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
+            if axis == 3:
+                new_pose[axis - 1] += direction*self.yaw_increment
+            else:
+                new_pose[axis - 1] += direction*self.pitch_roll_increment
+            self.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', new_pose, degrees = True).as_quat(), 1))
+            self.node.get_logger().info('Rotation about ' + string_axis[axis -  1] + ' of ' + str(direction*self.pitch_roll_increment) + 'degrees')
+            self.node.get_logger().info('New desired orientiation is ' + str(new_pose))
 
     def do_control(self, real_pose : Custom_Pose, step_size : float, anti_windup_trans_switch : bool = False, anti_windup_rot_switch : bool = False):
 
         # updates
-        
         self.e_pos = self.desired_pose.position - real_pose.position
         self.I_e_pos = self.I_e_pos + self.e_pos*step_size
         self.D_e_pos = self.desired_pose.velocity - real_pose.velocity
@@ -171,26 +197,101 @@ class Geometric_Controller(Custom_Controller):
         self.e_ang = 2*np.sign(temp_e_ang.scalar)*temp_e_ang.vector
         self.I_e_ang = self.I_e_ang + self.e_ang*step_size
         self.D_e_ang = self.desired_pose.rot_velocity - real_pose.rot_velocity
+        
         # Calc V
-
         DD_p_d = self.desired_pose.acceleration
         DD_r_d = self.desired_pose.rot_acceleration
 
         # Anti Windup
-
         self.anti_windup(anti_windup_trans_switch, anti_windup_rot_switch)
 
         self.Vp = DD_p_d + self.PID.Ktd @ self.D_e_pos + self.PID.Ktp @ self.e_pos + self.PID.Kti @ self.I_e_pos + np.array([0, 0, self.g])
         self.Vr = DD_r_d + self.PID.Krd @ self.D_e_ang + self.PID.Krp @ self.e_ang + self.PID.Kri @ self.I_e_ang
 
         # Calc J
-
         f_B = real_pose.rotation.inverse.rotate(self.Vp*self.m_tot)
         tau_B = np.matmul(self.I, self.Vr)
         self.v_B = np.concatenate((f_B, tau_B))
 
         # Calc u
+        u = np.matmul(np.linalg.inv(self.Jb), self.v_B)
 
+        for i in range(6):
+            if u[i]<0.0:
+                u[i] = 0.0
+        desired_motor_thrust = u
+
+        return desired_motor_thrust
+    
+class Velocity_Controller(Custom_Controller):
+    
+    def __init__(self, node):
+        super().__init__(node)
+        self.type = Custom_Controller_Type.VELOCITY
+
+        self.default_pid_param_trans_p = np.array([2.0, 2.0, 2.0])
+        self.default_pid_param_trans_i = np.array([0.5, 0.5, 0.5])
+        self.default_pid_param_trans_d = np.array([0.0, 0.0, 0.0])
+        self.default_pid_param_rot_p = np.array([2.0, 2.0, 2.0])
+        self.default_pid_param_rot_i = np.array([0.5, 0.5, 0.5])
+        self.default_pid_param_rot_d = np.array([0.0, 0.0, 0.0])
+        self.PID = Custom_PID_Param(self.default_pid_param_trans_p, self.default_pid_param_trans_i, self.default_pid_param_trans_d,
+                                    self.default_pid_param_rot_p, self.default_pid_param_rot_i, self.default_pid_param_rot_d)
+
+        # Errors init
+        self.e_pos = np.zeros(3)
+        self.I_e_pos = np.zeros(3)
+
+        self.e_ang = np.zeros(3)
+        self.I_e_ang = np.zeros(3)
+
+        self.trans_increment = 0.01       # meters/s
+        self.pitch_roll_increment = 0.02  # degrees/s
+        self.yaw_increment = 0.05
+
+    def integral_reset(self, trans = False, rot = False):
+        if trans:
+            self.I_e_pos = np.zeros(3)
+        if rot:
+            self.I_e_ang = np.zeros(3)
+
+    def joystick_input(self, axis, direction):
+        string_axis = ['X', 'Y', 'Z']
+        if axis <= 3:
+            new_pose = self.desired_pose.velocity
+            new_pose[axis - 1] += direction*self.trans_increment
+            self.desired_pose.velocity = new_pose
+            self.node.get_logger().info('Velocity along ' + string_axis[axis -  1] + ' of ' + str(direction*self.trans_increment*100) + 'centimeters/seconds')
+            self.node.get_logger().info('New desired speed is ' + str(new_pose))
+        else:
+            axis -= 3
+            new_pose = self.desired_pose.rot_velocity
+            if axis == 3:
+                new_pose[axis - 1] += direction*self.yaw_increment
+            else:
+                new_pose[axis - 1] += direction*self.pitch_roll_increment
+            self.desired_pose.rot_velocity = new_pose
+            self.node.get_logger().info('Rotation velocity about ' + string_axis[axis -  1] + ' of ' + str(direction*self.pitch_roll_increment*100) + 'centidegrees/seconds')
+            self.node.get_logger().info('New desired orientiation velocity is ' + str(new_pose))
+
+    def do_control(self, real_pose : Custom_Pose, step_size : float):
+
+        # updates
+        self.e_pos = self.desired_pose.velocity - real_pose.velocity
+        self.I_e_pos = self.I_e_pos + self.e_pos*step_size
+
+        self.e_ang = self.desired_pose.rot_velocity - real_pose.rot_velocity
+        self.I_e_ang = self.I_e_ang + self.e_ang*step_size
+
+        self.Vp = self.PID.Ktp @ self.e_pos + self.PID.Kti @ self.I_e_pos + np.array([0, 0, self.g])
+        self.Vr = self.PID.Krp @ self.e_ang + self.PID.Kri @ self.I_e_ang
+
+        # Calc J
+        f_B = real_pose.rotation.inverse.rotate(self.Vp*self.m_tot)
+        tau_B = np.matmul(self.I, self.Vr)
+        self.v_B = np.concatenate((f_B, tau_B))
+
+        # Calc u
         u = np.matmul(np.linalg.inv(self.Jb), self.v_B)
 
         for i in range(6):
