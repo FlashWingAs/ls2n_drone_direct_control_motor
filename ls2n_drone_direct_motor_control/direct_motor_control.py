@@ -164,24 +164,24 @@ class CustomControlCenter(Node):
         # Automatic detection of custom parameters
 
         self.custom_pid_switch = False                   # True if using default pid parameters set in the controller
-        if self.pid_trans_p != "0.0, 0.0, 0.0":
+        if self.pid_trans_p() != "0.0, 0.0, 0.0":
             self.custom_pid_switch = True
-        if self.pid_trans_i != "0.0, 0.0, 0.0":
+        if self.pid_trans_i() != "0.0, 0.0, 0.0":
             self.custom_pid_switch = True
-        if self.pid_trans_d != "0.0, 0.0, 0.0":
+        if self.pid_trans_d() != "0.0, 0.0, 0.0":
             self.custom_pid_switch = True
-        if self.pid_rot_p != "0.0, 0.0, 0.0":
+        if self.pid_rot_p() != "0.0, 0.0, 0.0":
             self.custom_pid_switch = True
-        if self.pid_rot_i != "0.0, 0.0, 0.0":
+        if self.pid_rot_i() != "0.0, 0.0, 0.0":
             self.custom_pid_switch = True
-        if self.pid_rot_d != "0.0, 0.0, 0.0":
+        if self.pid_rot_d() != "0.0, 0.0, 0.0":
             self.custom_pid_switch = True
         self.anti_windup_trans_switch = False
         self.anti_windup_rot_switch = False
-        # if self.anti_windup_trans != "0.0, 0.0, 0.0":
-        #     self.anti_windup_trans_switch = True
-        # if self.anti_windup_rot != "0.0, 0.0, 0.0":
-        #     self.anti_windup_rot_switch = True
+        if self.anti_windup_trans() != "0.0, 0.0, 0.0":
+            self.anti_windup_trans_switch = True
+        if self.anti_windup_rot() != "0.0, 0.0, 0.0":
+            self.anti_windup_rot_switch = True
 
         self.get_logger().info("Starting control center node")
 
@@ -327,8 +327,20 @@ class CustomControlCenter(Node):
                     self.controller.desired_pose.rotation = Quaternion(np.roll(R.from_euler('XYZ', np.fromstring(param.value, sep = ','), degrees = True).as_quat(), 1))
                 if param.name == "anti_windup_trans":
                     self.controller.anti_windup_trans = np.fromstring(param.value, sep = ',')
+                    if self.anti_windup_trans == "0.0, 0.0, 0.0":
+                        self.anti_windup_trans_switch = False
+                        self.get_logger().info("Translationnal anti-windup deactivated")
+                    else: 
+                        self.anti_windup_trans_switch = True
+                        self.get_logger().info("Translationnal anti-windup activated")
                 if param.name == "anti_windup_rot":
                     self.controller.anti_windup_rot = np.fromstring(param.value, sep = ',')
+                    if self.anti_windup_rot == "0.0, 0.0, 0.0":
+                        self.anti_windup_rot_switch = False
+                        self.get_logger().info("Rotationnal anti-windup deactivated")
+                    else: 
+                        self.anti_windup_rot_switch = True
+                        self.get_logger().info("Rotationnal anti-windup activated")
                 
                 self.get_logger().info("Parameter succesfully updated")
             else:

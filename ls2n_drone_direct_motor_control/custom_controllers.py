@@ -46,7 +46,7 @@ class Custom_Controller:
                 euler_vector[1] = position
                 self.desired_pose.rot_velocity[1] = velocity*np.pi/180
                 self.desired_pose.rot_acceleration[1] = acceleration*np.pi/180
-            elif coordinate == "zaw":
+            elif coordinate == "yaw":
                 euler_vector[2] = position
                 self.desired_pose.rot_velocity[2] = velocity*np.pi/180
                 self.desired_pose.rot_acceleration[2] = acceleration*np.pi/180
@@ -95,12 +95,12 @@ class Geometric_Controller(Custom_Controller):
         self.alpha_arms = self.alpha*np.array([-1, 1, -1, 1, 1, -1])
         self.clock = np.array([1, -1, 1, -1, -1, 1]) # Clockwise or Anti-clockwise
         self.d = 0.06 #0.745
-        self.default_pid_param_trans_p = np.array([1.0, 1.0, 1.0])
-        self.default_pid_param_trans_i = np.array([0.0, 0.0, 0.0])
-        self.default_pid_param_trans_d = np.array([1.0, 1.0, 1.0])
-        self.default_pid_param_rot_p = np.array([1.0, 1.0, 1.0])
-        self.default_pid_param_rot_i = np.array([0.0, 0.0, 0.0])
-        self.default_pid_param_rot_d = np.array([1.0, 1.0, 1.0])
+        self.default_pid_param_trans_p = np.array([15.0, 15.0, 10.0])
+        self.default_pid_param_trans_i = np.array([2.0, 2.0, 2.0])
+        self.default_pid_param_trans_d = np.array([15.0, 15.0, 15.0])
+        self.default_pid_param_rot_p = np.array([10.0, 10.0, 10.0])
+        self.default_pid_param_rot_i = np.array([1.0, 1.0, 0.5])
+        self.default_pid_param_rot_d = np.array([4.0, 4.0, 4.0])
         self.PID = Custom_PID_Param(self.default_pid_param_trans_p, self.default_pid_param_trans_i, self.default_pid_param_trans_d,
                                     self.default_pid_param_rot_p, self.default_pid_param_rot_i, self.default_pid_param_rot_d)
         # Mixer init
