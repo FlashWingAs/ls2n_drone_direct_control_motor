@@ -13,8 +13,8 @@
     geom_pid_rot_d: "4.0, 4.0, 4.0"
 
     #PID VELOCITY
-    vel_pid_trans_p: "2.0, 2.0, 4.0"
-    vel_pid_trans_i: "0.5, 0.5, 2.0"
+    vel_pid_trans_p: "4.0, 4.0, 4.0"
+    vel_pid_trans_i: "1.0, 1.0, 2.0"
     vel_pid_rot_p: "2.0, 2.0, 2.0"
     vel_pid_rot_i: "0.5, 0.5, 0.5"
 

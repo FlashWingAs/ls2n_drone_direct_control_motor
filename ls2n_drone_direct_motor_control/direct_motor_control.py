@@ -184,26 +184,26 @@ class CustomControlCenter(Node):
 
         self.custom_geom_pid_switch = False                   # True if using default pid parameters set in the controller
         if self.geom_pid_trans_p() != "0.0, 0.0, 0.0":
-            self.geom_custom_pid_switch = True
+            self.custom_geom_pid_switch = True
         if self.geom_pid_trans_i() != "0.0, 0.0, 0.0":
-            self.geom_custom_pid_switch = True
+            self.custom_geom_pid_switch = True
         if self.geom_pid_trans_d() != "0.0, 0.0, 0.0":
-            self.geom_custom_pid_switch = True
+            self.custom_geom_pid_switch = True
         if self.geom_pid_rot_p() != "0.0, 0.0, 0.0":
-            self.geom_custom_pid_switch = True
+            self.custom_geom_pid_switch = True
         if self.geom_pid_rot_i() != "0.0, 0.0, 0.0":
-            self.geom_custom_pid_switch = True
+            self.custom_geom_pid_switch = True
         if self.geom_pid_rot_d() != "0.0, 0.0, 0.0":
-            self.geom_custom_pid_switch = True
+            self.custom_geom_pid_switch = True
         self.custom_vel_pid_switch = False                   # True if using default pid parameters set in the controller
         if self.vel_pid_trans_p() != "0.0, 0.0, 0.0":
-            self.vel_custom_pid_switch = True
+            self.custom_vel_pid_switch = True
         if self.vel_pid_trans_i() != "0.0, 0.0, 0.0":
-            self.vel_custom_pid_switch = True
+            self.custom_vel_pid_switch = True
         if self.vel_pid_rot_p() != "0.0, 0.0, 0.0":
-            self.vel_custom_pid_switch = True
+            self.custom_vel_pid_switch = True
         if self.vel_pid_rot_i() != "0.0, 0.0, 0.0":
-            self.vel_custom_pid_switch = True
+            self.custom_vel_pid_switch = True
         self.anti_windup_trans_switch = False
         self.anti_windup_rot_switch = False
         if self.anti_windup_trans() != "0.0, 0.0, 0.0":
@@ -212,7 +212,6 @@ class CustomControlCenter(Node):
             self.anti_windup_rot_switch = True
 
         self.get_logger().info("Starting control center node")
-
         # Service creation
         self.create_service(Empty, "SpinMotors", self.spin_motors)
         self.create_service(Empty, "StartExperiment", self.start_experiment)
@@ -330,7 +329,7 @@ class CustomControlCenter(Node):
         for param in params:
             if self.controller is not None and self.controller.type != Custom_Controller_Type.TEST:
                 if param.name == "select_controller":
-                        self.contoller_selection(self.select_controller())
+                        self.controller_selection(self.select_controller())
                         self.init_controller()
                 if self.controller.type == Custom_Controller_Type.GEOMETRIC:
                     if param.name == "geom_pid_trans_p":
@@ -551,14 +550,14 @@ class CustomControlCenter(Node):
 
             if (abs(rb >= 0.5)) and self.RB == 0:
                 self.RB = 1
-                self.contoller_selection(2)
+                self.controller_selection(2)
                 self.init_controller()
             if (abs(rb < 0.5)) and self.RB != 0:
                 self.RB = 0
 
             if (abs(lb >= 0.5)) and self.LB == 0:
                 self.LB = 1
-                self.contoller_selection(3)
+                self.controller_selection(3)
                 self.init_controller()
             if (abs(lb < 0.5)) and self.LB != 0:
                 self.LB = 0
@@ -651,7 +650,7 @@ class CustomControlCenter(Node):
                 self.controller.anti_windup_rot = np.fromstring(self.anti_windup_rot(), sep = ',')
                 self.get_logger().info("Rotationnal anti windup activated")
             new_pose = Custom_Pose()
-            new_pose.position = np.fromstring(self.d_position(), sep=",")
+            new_pose.position = self.real_pose.position
             self.controller.desired_pose = new_pose
         if self.controller.type == Custom_Controller_Type.VELOCITY:
             self.get_logger().info("VELOCITY controller will be available in-flight. GEOMETRIC controller is used to take off and land")
@@ -669,7 +668,7 @@ class CustomControlCenter(Node):
 
     def spin_motors(self, request, response):
         if not self.experiment_started:
-            self.contoller_selection(self.select_controller())
+            self.controller_selection(self.select_controller())
             self.init_controller()
             request_out = DroneRequest.Request()
             request_out.request = DroneRequest.Request.SPIN_MOTORS
@@ -736,7 +735,7 @@ class CustomControlCenter(Node):
 
     selected_controller = 0
 
-    def contoller_selection(self, selection):
+    def controller_selection(self, selection):
         match selection:
             case 1:
                 self.selected_controller = 1
@@ -823,31 +822,31 @@ class CustomControlCenter(Node):
         vsn_trigger = False
         if self.controller.desired_pose.position[0] < self.vsn_limits_x[0] or self.real_pose.position[0] < self.vsn_limits_x[0]:
             vsn_trigger = True
-            new_pose = self.controller.desired_pose.position
+            new_pose = self.real_pose.position
             new_pose[0] = self.vsn_limits_x[0] + self.safe_return
         if self.controller.desired_pose.position[0] > self.vsn_limits_x[1] or self.real_pose.position[0] > self.vsn_limits_x[1]:
             vsn_trigger = True
-            new_pose = self.controller.desired_pose.position
+            new_pose = self.real_pose.position
             new_pose[0] = self.vsn_limits_x[1] - self.safe_return
         if self.controller.desired_pose.position[1] < self.vsn_limits_y[0] or self.real_pose.position[1] < self.vsn_limits_y[0]:
             vsn_trigger = True
-            new_pose = self.controller.desired_pose.position
+            new_pose = self.real_pose.position
             new_pose[1] = self.vsn_limits_y[0] + self.safe_return
         if self.controller.desired_pose.position[1] > self.vsn_limits_y[1] or self.real_pose.position[1] > self.vsn_limits_y[1]:
             vsn_trigger = True
-            new_pose = self.controller.desired_pose.position
+            new_pose = self.real_pose.position
             new_pose[1] = self.vsn_limits_y[1] - self.safe_return
         if self.controller.desired_pose.position[2] < self.vsn_limits_z[0] or self.real_pose.position[2] < self.vsn_limits_z[0]:
             vsn_trigger = True
-            new_pose = self.controller.desired_pose.position
+            new_pose = self.real_pose.position
             new_pose[2] = self.vsn_limits_z[0] + self.safe_return
         if self.controller.desired_pose.position[2] > self.vsn_limits_z[1] or self.real_pose.position[2] > self.vsn_limits_z[1]:
             vsn_trigger = True
-            new_pose = self.controller.desired_pose.position
+            new_pose = self.real_pose.position
             new_pose[2] = self.vsn_limits_z[1] - self.safe_return
         if vsn_trigger == True:
             self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose")
-            self.contoller_selection(2)
+            self.controller_selection(2)
             self.init_controller()
             self.reset_trajectory_client.call_async(Empty.Request())
             self.controller.desired_pose.position = new_pose
@@ -865,9 +864,10 @@ class CustomControlCenter(Node):
             rot_trigger = True
         if rot_trigger == True:
             self.get_logger().info("Rotation Securtity triggered, attempting return to horizontal orientation")
-            self.contoller_selection(2)
+            self.controller_selection(2)
             self.init_controller()
             self.reset_trajectory_client.call_async(Empty.Request())
+            self.controller.desired_pose.position = self.real_pose.position
             self.controller.desired_pose.rotation = Quaternion()
 
     def controller_execute(self):
