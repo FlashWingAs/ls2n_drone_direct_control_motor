@@ -6,6 +6,7 @@ from geometry_msgs.msg import Vector3Stamped
 from ls2n_interfaces.msg import MotorControlSetPoint
 
 from ls2n_drone_direct_motor_control.custom_common import Custom_Pose, Custom_Controller_Type, Custom_PID_Param
+from ls2n_drone_direct_motor_control.custom_observer import Custom_Observer
 
 class Custom_Controller:
 
@@ -28,7 +29,7 @@ class Custom_Controller:
         self.lambda_arms = np.array([-self.pi/2, self.pi/2, self.pi/6, -5*self.pi/6, -self.pi/6, 5*self.pi/6])
         self.alpha_arms = self.alpha*np.array([-1, 1, -1, 1, 1, -1])
         self.clock = np.array([1, -1, 1, -1, -1, 1]) # Clockwise or Anti-clockwise
-        self.d = 0.06 #0.745
+        self.d = 0.06 #0.06 #0.745
 
         # Mixer init
         self.B_P_Pi = np.zeros((6,3,1))
@@ -145,6 +146,9 @@ class Geometric_Controller(Custom_Controller):
         self.pitch_roll_increment = 2.0  # degrees
         self.yaw_increment = 5.0
 
+        # Observer creation
+        self.disturbance_observer = Custom_Observer(self.node, self.m_tot, self.I)
+
     def integral_reset(self, trans = False, rot = False):
         if trans:
             self.I_e_pos = np.zeros(3)
@@ -253,12 +257,15 @@ class Geometric_Controller(Custom_Controller):
         self.anti_windup(anti_windup_trans_switch, anti_windup_rot_switch)
 
         self.Vp = DD_p_d + self.PID.Ktd @ self.D_e_pos + self.PID.Ktp @ self.e_pos + self.PID.Kti @ self.I_e_pos + np.array([0, 0, self.g])
+        self.Vp = self.translationnal_acceleration_check(self.Vp, real_pose)
         self.Vr = DD_r_d + self.PID.Krd @ self.D_e_ang + self.PID.Krp @ self.e_ang + self.PID.Kri @ self.I_e_ang
 
         # Calc J
         f_B = real_pose.rotation.inverse.rotate(self.Vp*self.m_tot)
         tau_B = np.matmul(self.I, self.Vr)
         self.v_B = np.concatenate((f_B, tau_B))
+        self.disturbance_observer.do_observer(real_pose, self.v_B, self.node.time)
+        # self.v_B -= self.disturbance_observer.estimated_wrench
 
         # Calc u
         u = np.matmul(np.linalg.inv(self.Jb), self.v_B)

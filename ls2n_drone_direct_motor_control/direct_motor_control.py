@@ -591,6 +591,7 @@ class CustomControlCenter(Node):
         msg.error_position = self.controller.e_pos.tolist()
         msg.error_rotation = self.controller.e_ang.tolist()
         msg.integral_pos = self.controller.I_e_pos.tolist()
+        msg.observer = self.controller.disturbance_observer.estimated_wrench.tolist()
         self.classic_debug_publisher.publish(msg)
 
     def real_pose_debug(self):
