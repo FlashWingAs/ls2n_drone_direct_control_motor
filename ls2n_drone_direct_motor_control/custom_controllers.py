@@ -186,6 +186,53 @@ class Geometric_Controller(Custom_Controller):
             self.node.get_logger().info('Rotation about ' + string_axis[axis -  1] + ' of ' + str(direction*self.pitch_roll_increment) + 'degrees')
             self.node.get_logger().info('New desired orientiation is ' + str(new_pose))
 
+    def translationnal_acceleration_check(self, Acc, real_pose : Custom_Pose):
+        Ax = Acc[0]
+        Ay = Acc[1]
+        A_t = np.sqrt(Ax**2+Ay**2)
+        Accel_direction = np.arctan2(Ay, Ax)
+        P = self.g
+
+        # SIMPLE HORIZONTAL SOLUTION (doesn't take into account the orientation of the drone)
+        A_t_M_0 = P*np.tan(self.alpha)
+
+        # Getting the simplified drone tilt angle
+        rotation_matrix = R.from_quat(np.roll(real_pose.rotation.elements, -1)).as_matrix()
+        z_b_0 = rotation_matrix[:, 2]
+        theta = np.arccos(z_b_0[2])
+        Tilt_direction = np.arctan2(z_b_0[1], z_b_0[0])
+
+        # SIMPLE TILTED SOLUTION (take into account the orientation of the drone, but limit to the smallest acceleration possible)
+        A_t_M_1 = P*np.tan(self.alpha - theta)
+
+        # COMPLEX TILTED SOLUTION (take into account the orientation of the drone, 
+        #                          and adapt the max acceleretation to the orientation direction and the translation direction)
+
+        M = P*np.tan(self.alpha + theta)
+        m = P*np.tan(self.alpha - theta)
+        N = P*np.tan(self.alpha)
+
+        a = (M + m)/2
+        b = N
+        l = b**2/a
+        e = np.sqrt(1-b**2/a**2)
+        def ellipse_radius(angle):
+            return l/(1-e*np.cos(angle))
+        A_t_M_2 = ellipse_radius(Accel_direction - Tilt_direction)
+
+        A_t_M = [A_t_M_0, A_t_M_1, A_t_M_2]
+        selection = 2
+
+        if A_t > A_t_M[selection]:
+            self.node.get_logger().info("tf_checker triggered", throttle_duration_sec = 1)
+            ratio = A_t_M[selection] / A_t
+            # Acc = Acc*ratio
+            Ax *= ratio
+            Ay *= ratio
+            Acc = np.array([Ax, Ay, Acc[2]])
+
+        return Acc
+
     def do_control(self, real_pose : Custom_Pose, step_size : float, anti_windup_trans_switch : bool = False, anti_windup_rot_switch : bool = False):
 
         # updates
