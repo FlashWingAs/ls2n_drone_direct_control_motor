@@ -329,8 +329,7 @@ class CustomControlCenter(Node):
         for param in params:
             if self.controller is not None and self.controller.type != Custom_Controller_Type.TEST:
                 if param.name == "select_controller":
-                        self.controller_selection(self.select_controller())
-                        self.init_controller()
+                        self.controller_selection(self.select_controller(), init = True, reset = True)
                 if self.controller.type == Custom_Controller_Type.GEOMETRIC:
                     if param.name == "geom_pid_trans_p":
                         self.controller.PID.trans_p = np.fromstring(param.value, sep = ",")
@@ -550,15 +549,13 @@ class CustomControlCenter(Node):
 
             if (abs(rb >= 0.5)) and self.RB == 0:
                 self.RB = 1
-                self.controller_selection(2)
-                self.init_controller()
+                self.controller_selection(2, init = True, reset = True)
             if (abs(rb < 0.5)) and self.RB != 0:
                 self.RB = 0
 
             if (abs(lb >= 0.5)) and self.LB == 0:
                 self.LB = 1
-                self.controller_selection(3)
-                self.init_controller()
+                self.controller_selection(3, init = True, reset = True)
             if (abs(lb < 0.5)) and self.LB != 0:
                 self.LB = 0
 
@@ -640,20 +637,20 @@ class CustomControlCenter(Node):
                                                        np.fromstring(self.geom_pid_rot_p(), sep = ','),
                                                        np.fromstring(self.geom_pid_rot_i(), sep = ','),
                                                        np.fromstring(self.geom_pid_rot_d(), sep = ','))
-                self.get_logger().info("Initilised wit custom PID parameters")
+                self.get_logger().info("Initilised wit custom PID parameters", throttle_duration_sec = 1)
             else:
-                self.get_logger().info("Initilised with default PID parameters")
+                self.get_logger().info("Initilised with default PID parameters", throttle_duration_sec = 1)
             if self.anti_windup_trans_switch:
                 self.controller.anti_windup_trans = np.fromstring(self.anti_windup_trans(), sep = ',')
-                self.get_logger().info("Translationnal anti windup activated")
+                self.get_logger().info("Translationnal anti windup activated", throttle_duration_sec = 1)
             if self.anti_windup_rot_switch:
                 self.controller.anti_windup_rot = np.fromstring(self.anti_windup_rot(), sep = ',')
-                self.get_logger().info("Rotationnal anti windup activated")
+                self.get_logger().info("Rotationnal anti windup activated", throttle_duration_sec = 1)
             new_pose = Custom_Pose()
             new_pose.position = self.real_pose.position
             self.controller.desired_pose = new_pose
         if self.controller.type == Custom_Controller_Type.VELOCITY:
-            self.get_logger().info("VELOCITY controller will be available in-flight. GEOMETRIC controller is used to take off and land")
+            self.get_logger().info("VELOCITY controller will be available in-flight. GEOMETRIC controller is used to take off and land", throttle_duration_sec = 1)
             self.controller.m_tot = self.mass()
             if self.custom_vel_pid_switch:
                 self.controller.PID = Custom_PID_Param(np.fromstring(self.vel_pid_trans_p(), sep = ','),
@@ -662,14 +659,13 @@ class CustomControlCenter(Node):
                                                        np.fromstring(self.vel_pid_rot_p(), sep = ','),
                                                        np.fromstring(self.vel_pid_rot_i(), sep = ','),
                                                        np.zeros(3))
-                self.get_logger().info("Initilised wit custom PID parameters")
+                self.get_logger().info("Initilised wit custom PID parameters", throttle_duration_sec = 1)
             else:
-                self.get_logger().info("Initilised with default PID parameters")
+                self.get_logger().info("Initilised with default PID parameters", throttle_duration_sec = 1)
 
     def spin_motors(self, request, response):
         if not self.experiment_started:
-            self.controller_selection(self.select_controller())
-            self.init_controller()
+            self.controller_selection(self.select_controller(), init = True, reset = True)
             request_out = DroneRequest.Request()
             request_out.request = DroneRequest.Request.SPIN_MOTORS
             self.drone_request_client.call_async(request_out)
@@ -735,20 +731,25 @@ class CustomControlCenter(Node):
 
     selected_controller = 0
 
-    def controller_selection(self, selection):
+    def controller_selection(self, selection, init = True, reset = False):
+        do_init = False
+        if reset: do_init = True
+        if init and self.selected_controller != selection: do_init = True
         match selection:
             case 1:
                 self.selected_controller = 1
                 self.controller = Test_Controller(self)
-                self.get_logger().info("Experiment starting with TEST controller")
+                self.get_logger().info("Experiment starting with TEST controller", throttle_duration_sec = 1)
             case 2:
                 self.selected_controller = 2
                 self.controller = Geometric_Controller(self)
-                self.get_logger().info("Experiment starting with GEOMETRIC controller")
+                self.get_logger().info("Experiment starting with GEOMETRIC controller", throttle_duration_sec = 1)
             case 3:
                 self.selected_controller = 3
                 self.controller = Velocity_Controller(self)
-                self.get_logger().info("Experiment starting with VELOCITY controller")
+                self.get_logger().info("Experiment starting with VELOCITY controller", throttle_duration_sec = 1)
+        if do_init:
+            self.init_controller()
 
     def switch_take_off(self):
         if self.controller.type == Custom_Controller_Type.VELOCITY:
@@ -845,9 +846,8 @@ class CustomControlCenter(Node):
             new_pose = self.real_pose.position
             new_pose[2] = self.vsn_limits_z[1] - self.safe_return
         if vsn_trigger == True:
-            self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose")
-            self.controller_selection(2)
-            self.init_controller()
+            self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose", throttle_duration_sec = 1)
+            self.controller_selection(2, init = True, reset = False)
             self.reset_trajectory_client.call_async(Empty.Request())
             self.controller.desired_pose.position = new_pose
             self.controller.desired_pose.rotation = Quaternion()
@@ -863,9 +863,8 @@ class CustomControlCenter(Node):
         if desired_rotation_compound > self.rot_limits or real_rotation_compound > self.rot_limits:
             rot_trigger = True
         if rot_trigger == True:
-            self.get_logger().info("Rotation Securtity triggered, attempting return to horizontal orientation")
-            self.controller_selection(2)
-            self.init_controller()
+            self.get_logger().info("Rotation Securtity triggered, attempting return to horizontal orientation", throttle_duration_sec = 1)
+            self.controller_selection(2, init = True, reset = False)
             self.reset_trajectory_client.call_async(Empty.Request())
             self.controller.desired_pose.position = self.real_pose.position
             self.controller.desired_pose.rotation = Quaternion()
