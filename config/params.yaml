@@ -5,18 +5,18 @@
     max_thrust: 195.198 #195.198
 
     #PID GEOMETRIC
-    geom_pid_trans_p: "15.0, 15.0, 10.0"
+    geom_pid_trans_p: "15.0, 15.0, 20.0"
     geom_pid_trans_i: "2.0, 2.0, 2.0"
-    geom_pid_trans_d: "15.0, 15.0, 15.0"
-    geom_pid_rot_p: "10.0, 10.0, 10.0"
-    geom_pid_rot_i: "1.0, 1.0, 0.5"
-    geom_pid_rot_d: "4.0, 4.0, 4.0"
+    geom_pid_trans_d: "10.0, 10.0, 10.0"
+    geom_pid_rot_p: "15.0, 15.0, 10.0"
+    geom_pid_rot_i: "1.5, 1.5, 0.5"
+    geom_pid_rot_d: "5.0, 5.0, 4.0"
 
     #PID VELOCITY
-    vel_pid_trans_p: "4.0, 4.0, 4.0"
-    vel_pid_trans_i: "1.0, 1.0, 2.0"
-    vel_pid_rot_p: "2.0, 2.0, 2.0"
-    vel_pid_rot_i: "0.5, 0.5, 0.5"
+    vel_pid_trans_p: "6.0, 6.0, 8.0"
+    vel_pid_trans_i: "4.0, 4.0, 6.0"
+    vel_pid_rot_p: "4.0, 4.0, 2.0"
+    vel_pid_rot_i: "2.0, 2.0, 0.5"
 
     #CONTROLLER SELECT
     select_controller: 2
