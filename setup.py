@@ -3,7 +3,7 @@ from glob import glob
 from setuptools import setup, find_packages
 
 
-package_name = "ls2n_drone_direct_motor_control"
+package_name = "ls2n_drone_tilthex_control"
 
 setup(
     name=package_name,
@@ -25,12 +25,12 @@ setup(
     zip_safe=True,
     maintainer="Julien Stauder",
     maintainer_email="julien.stauder@eleves.ec-nantes.fr",
-    description="Allow direct motor control",
+    description="Allow tilthex control",
     license="Apache 2.0",
     tests_require=["pytest"],
     entry_points={
         'console_scripts': [
-            'direct_motor_control = ls2n_drone_direct_motor_control.direct_motor_control:main'
+            'tilthex_control = ls2n_drone_tilthex_control.tilthex_control:main'
         ],
     },
 )

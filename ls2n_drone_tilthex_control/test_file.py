@@ -1,6 +1,5 @@
 from custom_common import *
 from custom_controllers import *
-from custom_observer import *
 from direct_motor_control import *
 
 # TEST 1 : Translationnal acceleration check

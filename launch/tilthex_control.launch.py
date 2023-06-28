@@ -16,12 +16,12 @@ def generate_launch_description():
                 description="Drone namespace",
             ),
             Node(
-                package="ls2n_drone_direct_motor_control",
-                executable="direct_motor_control",
+                package="ls2n_drone_tilthex_control",
+                executable="tilthex_control",
                 output="screen",
                 namespace=LaunchConfiguration("drone_namespace"),
                 parameters = [os.path.join(
-                    get_package_share_directory("ls2n_drone_direct_motor_control"),
+                    get_package_share_directory("ls2n_drone_tilthex_control"),
                     "config",
                     "params.yaml",
                 )]

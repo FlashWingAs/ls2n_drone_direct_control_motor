@@ -33,12 +33,12 @@ from ls2n_drone_bridge.common import (
     FullState,
     qos_profile_sensor_data,
 )
-from ls2n_drone_direct_motor_control.custom_controllers import (
+from ls2n_drone_tilthex_control.tilthex_controllers import (
     Test_Controller,
     Geometric_Controller,
     Velocity_Controller
 )
-from ls2n_drone_direct_motor_control.custom_common import (
+from ls2n_drone_tilthex_control.tilthex_common import (
     Custom_Controller_Type,
     Custom_Pose,
     Custom_PID_Param,
