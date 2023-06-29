@@ -5,14 +5,14 @@ import transforms3d as tf3d
 from geometry_msgs.msg import Vector3Stamped
 from ls2n_interfaces.msg import MotorControlSetPoint
 
-from ls2n_drone_tilthex_control.tilthex_common import Custom_Pose, Custom_Controller_Type, Custom_PID_Param, Custom_Observer
+from ls2n_drone_tilthex_control.tilthex_common import Tilthex_Pose, Tilthex_Controller_Type, Tilthex_PID_Param, Tilthex_Observer
 
-class Custom_Controller:
+class Tilthex_Controller:
 
     def __init__(self, node):
         self.node = node
-        self.type = Custom_Controller_Type.NONE
-        self.desired_pose = Custom_Pose()
+        self.type = Tilthex_Controller_Type.NONE
+        self.desired_pose = Tilthex_Pose()
 
         # Geometry
         self.pi = np.pi
@@ -104,20 +104,20 @@ class Custom_Controller:
     def joystick_input(self, _):
         pass
 
-class Test_Controller(Custom_Controller):
+class Test_Controller(Tilthex_Controller):
     def __init__(self, node):
         super().__init__(node)
-        self.type = Custom_Controller_Type.TEST
+        self.type = Tilthex_Controller_Type.TEST
 
     def do_control(self):
         desired_motor_speed = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
         return desired_motor_speed
 
-class Geometric_Controller(Custom_Controller):
+class Geometric_Controller(Tilthex_Controller):
 
     def __init__(self, node):
         super().__init__(node)
-        self.type = Custom_Controller_Type.GEOMETRIC
+        self.type = Tilthex_Controller_Type.GEOMETRIC
         
         self.default_pid_param_trans_p = np.array([15.0, 15.0, 10.0])
         self.default_pid_param_trans_i = np.array([2.0, 2.0, 2.0])
@@ -125,7 +125,7 @@ class Geometric_Controller(Custom_Controller):
         self.default_pid_param_rot_p = np.array([10.0, 10.0, 10.0])
         self.default_pid_param_rot_i = np.array([1.0, 1.0, 0.5])
         self.default_pid_param_rot_d = np.array([4.0, 4.0, 4.0])
-        self.PID = Custom_PID_Param(self.default_pid_param_trans_p, self.default_pid_param_trans_i, self.default_pid_param_trans_d,
+        self.PID = Tilthex_PID_Param(self.default_pid_param_trans_p, self.default_pid_param_trans_i, self.default_pid_param_trans_d,
                                     self.default_pid_param_rot_p, self.default_pid_param_rot_i, self.default_pid_param_rot_d)
         
         # Anti Windup
@@ -146,7 +146,7 @@ class Geometric_Controller(Custom_Controller):
         self.yaw_increment = 5.0
 
         # Observer creation
-        self.disturbance_observer = Custom_Observer(self.node, self.m_tot, self.I)
+        self.disturbance_observer = Tilthex_Observer(self.node, self.m_tot, self.I)
 
     def integral_reset(self, trans = False, rot = False):
         if trans:
@@ -189,7 +189,7 @@ class Geometric_Controller(Custom_Controller):
             self.node.get_logger().info('Rotation about ' + string_axis[axis -  1] + ' of ' + str(direction*self.pitch_roll_increment) + 'degrees')
             self.node.get_logger().info('New desired orientiation is ' + str(new_pose))
 
-    def translationnal_acceleration_check(self, Acc, real_pose : Custom_Pose):
+    def translationnal_acceleration_check(self, Acc, real_pose : Tilthex_Pose):
         Ax = Acc[0]
         Ay = Acc[1]
         A_t = np.sqrt(Ax**2+Ay**2)
@@ -236,7 +236,7 @@ class Geometric_Controller(Custom_Controller):
 
         return Acc
 
-    def do_control(self, real_pose : Custom_Pose, step_size : float, anti_windup_trans_switch : bool = False, anti_windup_rot_switch : bool = False):
+    def do_control(self, real_pose : Tilthex_Pose, step_size : float, anti_windup_trans_switch : bool = False, anti_windup_rot_switch : bool = False):
 
         # updates
         self.e_pos = self.desired_pose.position - real_pose.position
@@ -276,11 +276,11 @@ class Geometric_Controller(Custom_Controller):
 
         return desired_motor_thrust
     
-class Velocity_Controller(Custom_Controller):
+class Velocity_Controller(Tilthex_Controller):
     
     def __init__(self, node):
         super().__init__(node)
-        self.type = Custom_Controller_Type.VELOCITY
+        self.type = Tilthex_Controller_Type.VELOCITY
 
         self.default_pid_param_trans_p = np.array([2.0, 2.0, 2.0])
         self.default_pid_param_trans_i = np.array([0.5, 0.5, 0.5])
@@ -288,7 +288,7 @@ class Velocity_Controller(Custom_Controller):
         self.default_pid_param_rot_p = np.array([2.0, 2.0, 2.0])
         self.default_pid_param_rot_i = np.array([0.5, 0.5, 0.5])
         self.default_pid_param_rot_d = np.array([0.0, 0.0, 0.0])
-        self.PID = Custom_PID_Param(self.default_pid_param_trans_p, self.default_pid_param_trans_i, self.default_pid_param_trans_d,
+        self.PID = Tilthex_PID_Param(self.default_pid_param_trans_p, self.default_pid_param_trans_i, self.default_pid_param_trans_d,
                                     self.default_pid_param_rot_p, self.default_pid_param_rot_i, self.default_pid_param_rot_d)
 
         # Errors init
@@ -327,7 +327,7 @@ class Velocity_Controller(Custom_Controller):
             self.node.get_logger().info('Rotation velocity about ' + string_axis[axis -  1] + ' of ' + str(direction*self.pitch_roll_increment*100) + 'centidegrees/seconds')
             self.node.get_logger().info('New desired orientiation velocity is ' + str(new_pose))
 
-    def do_control(self, real_pose : Custom_Pose, step_size : float):
+    def do_control(self, real_pose : Tilthex_Pose, step_size : float):
 
         # updates
         self.e_pos = self.desired_pose.velocity - real_pose.velocity
