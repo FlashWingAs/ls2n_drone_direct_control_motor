@@ -322,6 +322,7 @@ class TilthexControlCenter(Node):
     step_size_old = 0.0
     taking_off_flag = False
     landing_flag = False
+    flying_flag = False
   
     # Callbacks
 
@@ -591,7 +592,10 @@ class TilthexControlCenter(Node):
         msg.error_position = self.controller.e_pos.tolist()
         msg.error_rotation = self.controller.e_ang.tolist()
         msg.integral_pos = self.controller.I_e_pos.tolist()
-        msg.observer = self.controller.disturbance_observer.estimated_wrench.tolist()
+        if self.controller.d_o_initialized:
+            msg.observer = self.controller.disturbance_observer.estimated_wrench.tolist()
+        else:
+            msg.observer = [0, 0, 0, 0 ,0, 0]
         self.classic_debug_publisher.publish(msg)
 
     def real_pose_debug(self):
@@ -771,6 +775,7 @@ class TilthexControlCenter(Node):
             self.get_logger().info("Take off complete, heading to desired position")
             self.controller.desired_pose.position = np.fromstring(self.d_position(), sep=",")
             self.controller.desired_pose.rotation = Quaternion()
+            self.flying_flag = True
 
     def switch_land(self):
         if self.controller.type == Tilthex_Controller_Type.VELOCITY:
@@ -801,6 +806,20 @@ class TilthexControlCenter(Node):
             self.landing_flag = False
             self.switch_landed()
 
+    t_start_hover = 0.0
+    waiting_for_d_o = False
+
+    def flying(self):
+        error = np.linalg.norm(self.controller.desired_pose.position - self.real_pose.position)
+        if error < 0.05 and self.waiting_for_d_o is False:
+            self.t_start_hover = self.time
+            self.waiting_for_d_o = True    
+        if self.time - self.t_start_hover >= 2.0 and self.waiting_for_d_o:
+            self.flying_flag = False
+            if self.selected_controller == 2:
+                self.controller.do_observer = True
+            self.get_logger().info("Drone hovering in default pose")
+
     # Main loop
 
     def main_loop(self):
@@ -824,50 +843,54 @@ class TilthexControlCenter(Node):
         vsn_trigger = False
         if self.controller.desired_pose.position[0] < self.vsn_limits_x[0] or self.real_pose.position[0] < self.vsn_limits_x[0]:
             vsn_trigger = True
-            new_pose = self.real_pose.position
+            new_pose = np.copy(self.real_pose.position)
             new_pose[0] = self.vsn_limits_x[0] + self.safe_return
         if self.controller.desired_pose.position[0] > self.vsn_limits_x[1] or self.real_pose.position[0] > self.vsn_limits_x[1]:
             vsn_trigger = True
-            new_pose = self.real_pose.position
+            new_pose = np.copy(self.real_pose.position)
             new_pose[0] = self.vsn_limits_x[1] - self.safe_return
         if self.controller.desired_pose.position[1] < self.vsn_limits_y[0] or self.real_pose.position[1] < self.vsn_limits_y[0]:
             vsn_trigger = True
-            new_pose = self.real_pose.position
+            new_pose = np.copy(self.real_pose.position)
             new_pose[1] = self.vsn_limits_y[0] + self.safe_return
         if self.controller.desired_pose.position[1] > self.vsn_limits_y[1] or self.real_pose.position[1] > self.vsn_limits_y[1]:
             vsn_trigger = True
-            new_pose = self.real_pose.position
+            new_pose = np.copy(self.real_pose.position)
             new_pose[1] = self.vsn_limits_y[1] - self.safe_return
         if self.controller.desired_pose.position[2] < self.vsn_limits_z[0] or self.real_pose.position[2] < self.vsn_limits_z[0]:
             vsn_trigger = True
-            new_pose = self.real_pose.position
+            new_pose = np.copy(self.real_pose.position)
             new_pose[2] = self.vsn_limits_z[0] + self.safe_return
         if self.controller.desired_pose.position[2] > self.vsn_limits_z[1] or self.real_pose.position[2] > self.vsn_limits_z[1]:
             vsn_trigger = True
-            new_pose = self.real_pose.position
+            new_pose = np.copy(self.real_pose.position)
             new_pose[2] = self.vsn_limits_z[1] - self.safe_return
         if vsn_trigger == True:
             self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose", throttle_duration_sec = 1)
-            self.controller_selection(2, init = True, reset = False)
+            if self.selected_controller != 2:
+                self.controller_selection(2, init = True, reset = False)
             self.reset_trajectory_client.call_async(Empty.Request())
             self.controller.desired_pose.position = new_pose
             self.controller.desired_pose.rotation = Quaternion()
 
-    rot_limits = 15.0
+    rot_limits = 15.0*np.pi/180
 
     def rotation_security(self):
         rot_trigger = False
-        desired_rotation = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
-        real_rotation = R.from_quat(np.roll(self.real_pose.rotation.elements, -1)).as_euler('XYZ', degrees = True)
-        desired_rotation_compound = np.sqrt(np.square(desired_rotation[0])+np.square(desired_rotation[1]))
-        real_rotation_compound = np.sqrt(np.square(real_rotation[0])+np.square(real_rotation[1]))
-        if desired_rotation_compound > self.rot_limits or real_rotation_compound > self.rot_limits:
+        real_rotation_matrix = R.from_quat(np.roll(self.real_pose.rotation.elements, -1)).as_matrix()
+        real_z_b_0 = real_rotation_matrix[:, 2]
+        real_theta = np.arccos(real_z_b_0[2])
+        desired_rotation_matrix = R.from_quat(np.roll(self.controller.desired_pose.rotation.elements, -1)).as_matrix()
+        desired_z_b_0 = desired_rotation_matrix[:, 2]
+        desired_theta = np.arccos(desired_z_b_0[2])
+        if desired_theta > self.rot_limits or real_theta > self.rot_limits:
             rot_trigger = True
         if rot_trigger == True:
             self.get_logger().info("Rotation Securtity triggered, attempting return to horizontal orientation", throttle_duration_sec = 1)
-            self.controller_selection(2, init = True, reset = False)
+            if self.selected_controller !=2:
+                self.controller_selection(2, init = True, reset = False)
             self.reset_trajectory_client.call_async(Empty.Request())
-            self.controller.desired_pose.position = self.real_pose.position
+            self.controller.desired_pose.position = np.copy(self.real_pose.position)
             self.controller.desired_pose.rotation = Quaternion()
 
     def controller_execute(self):
@@ -889,9 +912,12 @@ class TilthexControlCenter(Node):
                     self.taking_off()
                 if self.landing_flag:
                     self.landing()
+                if self.flying_flag:
+                    self.flying()
                 if self.experiment_started:
-                    self.rotation_security()
-                    self.virtual_safety_net()
+                    if not self.landing_flag:
+                        self.rotation_security()
+                        self.virtual_safety_net()
                     if self.controller.type == Tilthex_Controller_Type.GEOMETRIC:
                         control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
                     if self.controller.type == Tilthex_Controller_Type.VELOCITY:

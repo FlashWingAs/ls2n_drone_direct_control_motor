@@ -59,26 +59,30 @@ class Tilthex_Observer:
         self.g = np.array([0, 0, m_tot*9.81])
         self.M = np.concatenate((np.concatenate((np.diag(m_tot*np.ones(3)), np.zeros((3, 3))), 0), np.concatenate((np.zeros((3, 3)), I), 0)), 1)
         self.I = I
-        self.K0 = 2.0
+        self.K0 = 3.0
         self.t = 0.0
         self.t_old = 0.0
         self.delta_t = 0.0
-        self.actuator_wrench_int = np.zeros(6)
-        self.estimated_ext_wrench_int = np.zeros(6)
+        self.integral = np.zeros(6)
+        self.correct_desired_wrench = np.zeros(6)
         self.estimated_wrench_old = np.zeros(6)
         self.estimated_wrench = np.zeros(6)
         self.c = np.zeros(6)
 
     def do_observer(self, real_pose : Tilthex_Pose, desired_wrench, timestamp):
-        self.estimated_wrench_old = self.estimated_wrench
+        # Given desired wrench is in drone reference. We need to move the force to the world reference
+        rotation_matrix = R.from_quat(np.roll(real_pose.rotation.elements, -1)).as_matrix()
+        self.correct_desired_wrench = np.concatenate((rotation_matrix@desired_wrench[0:3], desired_wrench[3:6]))
+        self.estimated_wrench_old = np.copy(self.estimated_wrench)
         self.t_old = self.t
         self.t = timestamp
-        self.delta_t = self.t - self.delta_t
+        self.delta_t = self.t - self.t_old
         v = np.concatenate((real_pose.velocity, real_pose.rot_velocity))
-        self.actuator_wrench_int += desired_wrench*self.delta_t
-        self.estimated_ext_wrench_int += self.estimated_wrench_old*self.delta_t
-        self.c += np.concatenate((self.g, np.cross(real_pose.rot_velocity, self.I @ real_pose.rot_velocity)))*self.delta_t
-        self.estimated_wrench = self.K0 * self.M @ v * (self.c - self.actuator_wrench_int - self.estimated_ext_wrench_int)
+        self.c = np.concatenate((self.g, np.cross(real_pose.rot_velocity, self.I @ real_pose.rot_velocity)))
+        self.integral += (self.c - self.correct_desired_wrench - self.estimated_wrench_old)*self.delta_t
+        self.estimated_wrench = self.K0 * self.M @ v + self.K0 * self.integral
         # self.node.get_logger().info("delta_t = "+str(self.delta_t))
-        # self.node.get_logger().info("rotation_matrix = "+str(rotation_matrix))
+        # self.node.get_logger().info("actuator_wrench = "+str(desired_wrench))
+        # self.node.get_logger().info("c = "+str(self.c))
+        # self.node.get_logger().info("integral = "+str(self.integral))
         # self.node.get_logger().info("estimated wrench = "+str(self.estimated_wrench))

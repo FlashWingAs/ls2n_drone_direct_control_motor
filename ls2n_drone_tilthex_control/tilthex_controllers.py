@@ -141,12 +141,14 @@ class Geometric_Controller(Tilthex_Controller):
         self.D_e_ang = np.zeros(3)
         self.I_e_ang = np.zeros(3)
         
-        self.trans_increment = 0.1       # meters
+        self.trans_increment = 0.2       # meters
         self.pitch_roll_increment = 2.0  # degrees
         self.yaw_increment = 5.0
 
         # Observer creation
-        self.disturbance_observer = Tilthex_Observer(self.node, self.m_tot, self.I)
+        self.d_o_initialized = False
+        self.d_o_wait = 0.0
+        self.do_observer = False
 
     def integral_reset(self, trans = False, rot = False):
         if trans:
@@ -263,8 +265,20 @@ class Geometric_Controller(Tilthex_Controller):
         f_B = real_pose.rotation.inverse.rotate(self.Vp*self.m_tot)
         tau_B = np.matmul(self.I, self.Vr)
         self.v_B = np.concatenate((f_B, tau_B))
-        self.disturbance_observer.do_observer(real_pose, self.v_B, self.node.time)
-        # self.v_B -= self.disturbance_observer.estimated_wrench
+
+        if self.do_observer and not self.d_o_initialized:
+            self.disturbance_observer = Tilthex_Observer(self.node, self.m_tot, self.I)
+            self.d_o_initialized = True
+            self.d_o_wait = self.node.time
+            self.node.get_logger().info("Disturbance Observer Initialised")
+        if self.d_o_initialized:
+            if self.do_observer:
+                if self.node.time - self.d_o_wait >= 10.0:
+                    self.node.get_logger().info("Disturbance Observer Active", once = True)
+                    self.v_B -= self.disturbance_observer.estimated_wrench
+                self.disturbance_observer.do_observer(real_pose, self.v_B, self.node.time)
+                
+                
 
         # Calc u
         u = np.matmul(np.linalg.inv(self.Jb), self.v_B)
