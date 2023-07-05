@@ -129,6 +129,8 @@ class Geometric_Controller(Tilthex_Controller):
                                     self.default_pid_param_rot_p, self.default_pid_param_rot_i, self.default_pid_param_rot_d)
         
         # Anti Windup
+        self.anti_windup_trans_switch = False
+        self.anti_windup_rot_switch = False
         self.anti_windup_trans = np.zeros(3)
         self.anti_windup_rot = np.zeros(3)
 
@@ -238,7 +240,7 @@ class Geometric_Controller(Tilthex_Controller):
 
         return Acc
 
-    def do_control(self, real_pose : Tilthex_Pose, step_size : float, anti_windup_trans_switch : bool = False, anti_windup_rot_switch : bool = False):
+    def do_control(self, real_pose : Tilthex_Pose, step_size : float):
 
         # updates
         self.e_pos = self.desired_pose.position - real_pose.position
@@ -255,7 +257,7 @@ class Geometric_Controller(Tilthex_Controller):
         DD_r_d = self.desired_pose.rot_acceleration
 
         # Anti Windup
-        self.anti_windup(anti_windup_trans_switch, anti_windup_rot_switch)
+        self.anti_windup(self.anti_windup_trans_switch, self.anti_windup_rot_switch)
 
         self.Vp = DD_p_d + self.PID.Ktd @ self.D_e_pos + self.PID.Ktp @ self.e_pos + self.PID.Kti @ self.I_e_pos + np.array([0, 0, self.g])
         self.Vp = self.translationnal_acceleration_check(self.Vp, real_pose)
@@ -265,16 +267,20 @@ class Geometric_Controller(Tilthex_Controller):
         f_B = real_pose.rotation.inverse.rotate(self.Vp*self.m_tot)
         tau_B = np.matmul(self.I, self.Vr)
         self.v_B = np.concatenate((f_B, tau_B))
+        first_time = False
 
         if self.do_observer and not self.d_o_initialized:
             self.disturbance_observer = Tilthex_Observer(self.node, self.m_tot, self.I)
             self.d_o_initialized = True
+            first_time = True
             self.d_o_wait = self.node.time
             self.node.get_logger().info("Disturbance Observer Initialised")
         if self.d_o_initialized:
             if self.do_observer:
                 if self.node.time - self.d_o_wait >= 10.0:
-                    self.node.get_logger().info("Disturbance Observer Active", once = True)
+                    if first_time:
+                        self.node.get_logger().info("Disturbance Observer Active")
+                        first_time = False
                     self.v_B -= self.disturbance_observer.estimated_wrench
                 self.disturbance_observer.do_observer(real_pose, self.v_B, self.node.time)
                 

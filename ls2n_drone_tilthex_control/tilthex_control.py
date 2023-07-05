@@ -646,9 +646,11 @@ class TilthexControlCenter(Node):
             else:
                 self.get_logger().info("Initilised with default PID parameters", throttle_duration_sec = 1)
             if self.anti_windup_trans_switch:
+                self.controller.anti_windup_trans_switch = True
                 self.controller.anti_windup_trans = np.fromstring(self.anti_windup_trans(), sep = ',')
                 self.get_logger().info("Translationnal anti windup activated", throttle_duration_sec = 1)
             if self.anti_windup_rot_switch:
+                self.controller.anti_windup_rot_switch = True
                 self.controller.anti_windup_rot = np.fromstring(self.anti_windup_rot(), sep = ',')
                 self.get_logger().info("Rotationnal anti windup activated", throttle_duration_sec = 1)
             new_pose = Tilthex_Pose()
@@ -868,7 +870,7 @@ class TilthexControlCenter(Node):
         if vsn_trigger == True:
             self.get_logger().info("Virtual Safety Net triggered, attempting return to initial pose", throttle_duration_sec = 1)
             if self.selected_controller != 2:
-                self.controller_selection(2, init = True, reset = False)
+                self.controller_selection(2, init = True, reset = True)
             self.reset_trajectory_client.call_async(Empty.Request())
             self.controller.desired_pose.position = new_pose
             self.controller.desired_pose.rotation = Quaternion()
@@ -888,7 +890,7 @@ class TilthexControlCenter(Node):
         if rot_trigger == True:
             self.get_logger().info("Rotation Securtity triggered, attempting return to horizontal orientation", throttle_duration_sec = 1)
             if self.selected_controller !=2:
-                self.controller_selection(2, init = True, reset = False)
+                self.controller_selection(2, init = True, reset = True)
             self.reset_trajectory_client.call_async(Empty.Request())
             self.controller.desired_pose.position = np.copy(self.real_pose.position)
             self.controller.desired_pose.rotation = Quaternion()
@@ -919,7 +921,7 @@ class TilthexControlCenter(Node):
                         self.rotation_security()
                         self.virtual_safety_net()
                     if self.controller.type == Tilthex_Controller_Type.GEOMETRIC:
-                        control = self.controller.do_control(self.real_pose, self.step_size, self.anti_windup_trans_switch, self.anti_windup_rot_switch)
+                        control = self.controller.do_control(self.real_pose, self.step_size)
                     if self.controller.type == Tilthex_Controller_Type.VELOCITY:
                         control = self.controller.do_control(self.real_pose, self.step_size)
                     self.direct_motor_control_transfer(control)
