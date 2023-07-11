@@ -16,6 +16,7 @@ from ls2n_interfaces.msg import (
     MotorControlSetPoint,
     TilthexDebug,
     TilthexPoseDebug,
+    TilthexTfChecker,
 )
 from ls2n_interfaces.srv import DroneRequest, OnboardApp
 from nav_msgs.msg import Odometry
@@ -165,6 +166,12 @@ class TilthexControlCenter(Node):
                 ParameterType.PARAMETER_DOUBLE,
                 "Battery discharge model parameter b"
             ],
+            [
+                "tilt_angle",
+                30.0,
+                ParameterType.PARAMETER_DOUBLE,
+                "Rotor tilt angle"
+            ],
         ]
         for parameter in parameters:
             self.declare_parameter(
@@ -282,6 +289,12 @@ class TilthexControlCenter(Node):
             qos_profile_sensor_data
         )
 
+        self.tf_checker_debug_publisher = self.create_publisher(
+            TilthexTfChecker,
+            "tf_checker",
+            qos_profile_sensor_data
+        )
+
         self.joy_sub = self.create_subscription(
             JoyMsg,
             "/CommandCenter/Joystick",
@@ -307,6 +320,7 @@ class TilthexControlCenter(Node):
         
         self.add_on_set_parameters_callback(self.parameters_callback)
 
+    # General variables
     status = Status()
     experiment_started = False
     odom = Odometry()
@@ -323,6 +337,53 @@ class TilthexControlCenter(Node):
     taking_off_flag = False
     landing_flag = False
     flying_flag = False
+    selected_controller = 0
+    t_start_hover = 0.0
+    waiting_for_d_o = False
+
+    # Joystick variables
+    TX_ref = 1
+    TY_ref = 0
+    TZ_ref = 4
+    RX_ref = 6
+    RY_ref = 7
+    RZ_ref = 3
+    L3_ref = 9
+    R3_ref = 10
+    RB_ref = 5
+    LB_ref = 4
+    START_ref = 7
+    SELECT_ref = 6
+    TX = 0
+    TY = 0
+    TZ = 0
+    RX = 0
+    RY = 0
+    RZ = 0
+    L3 = 0
+    R3 = 0
+    RB = 0
+    LB = 0
+    START = 0
+    SELECT = 0
+
+    # Battery variables
+    max_computed_thrust = 10000.0
+    bat_v = 0.0
+
+    # Security variables
+    vsn_limits_x = [-1.0, 1.0]
+    vsn_limits_y = [-2.0, 2.0]
+    vsn_limits_z = [0.0, 2.7]
+    safe_return = 0.2
+
+    rot_limits = 90*np.pi/180
+
+    # Observer variables
+    d_o_initialized = False
+    d_o_wait = 0.0
+    do_observer = False
+    d_o_first_time = False
   
     # Callbacks
 
@@ -415,31 +476,6 @@ class TilthexControlCenter(Node):
             if self.controller.type == Tilthex_Controller_Type.GEOMETRIC:
                 if self.status.status == DroneStatus.FLYING and self.experiment_started:
                     self.controller.update_trajectory_setpoint(msg)
-
-    TX_ref = 1
-    TY_ref = 0
-    TZ_ref = 4
-    RX_ref = 6
-    RY_ref = 7
-    RZ_ref = 3
-    L3_ref = 9
-    R3_ref = 10
-    RB_ref = 5
-    LB_ref = 4
-    START_ref = 7
-    SELECT_ref = 6
-    TX = 0
-    TY = 0
-    TZ = 0
-    RX = 0
-    RY = 0
-    RZ = 0
-    L3 = 0
-    R3 = 0
-    RB = 0
-    LB = 0
-    START = 0
-    SELECT = 0
 
     def joystick_callback(self, data):
         tx = np.round(data.axes[self.TX_ref], 1)
@@ -592,8 +628,8 @@ class TilthexControlCenter(Node):
         msg.error_position = self.controller.e_pos.tolist()
         msg.error_rotation = self.controller.e_ang.tolist()
         msg.integral_pos = self.controller.I_e_pos.tolist()
-        if self.controller.d_o_initialized:
-            msg.observer = self.controller.disturbance_observer.estimated_wrench.tolist()
+        if self.d_o_initialized:
+            msg.observer = self.disturbance_observer.estimated_wrench.tolist()
         else:
             msg.observer = [0, 0, 0, 0 ,0, 0]
         self.classic_debug_publisher.publish(msg)
@@ -628,47 +664,15 @@ class TilthexControlCenter(Node):
         msg.rot_acceleration = self.take_off_pose.rot_acceleration.tolist()
         self.take_off_pose_debug_publisher.publish(msg)
 
+    def tf_checker_debug(self):
+        msg = TilthexTfChecker()
+        msg.theta = self.controller.theta
+        msg.tilt_direction = self.controller.tilt_direction
+        msg.a_t = self.controller.a_t
+        msg.max_accel = self.controller.max_accel
+        self.tf_checker_debug_publisher.publish(msg)
+
     # Services
-    def init_controller(self):
-        if self.controller.type == Tilthex_Controller_Type.TEST:
-            pass
-        if self.controller.type == Tilthex_Controller_Type.GEOMETRIC:
-            self.controller.m_tot = self.mass()
-            self.desired_altitude = np.fromstring(self.d_position(), sep=",")[2]
-            if self.custom_geom_pid_switch:
-                self.controller.PID = Tilthex_PID_Param(np.fromstring(self.geom_pid_trans_p(), sep = ','),
-                                                       np.fromstring(self.geom_pid_trans_i(), sep = ','),
-                                                       np.fromstring(self.geom_pid_trans_d(), sep = ','),
-                                                       np.fromstring(self.geom_pid_rot_p(), sep = ','),
-                                                       np.fromstring(self.geom_pid_rot_i(), sep = ','),
-                                                       np.fromstring(self.geom_pid_rot_d(), sep = ','))
-                self.get_logger().info("Initilised wit custom PID parameters", throttle_duration_sec = 1)
-            else:
-                self.get_logger().info("Initilised with default PID parameters", throttle_duration_sec = 1)
-            if self.anti_windup_trans_switch:
-                self.controller.anti_windup_trans_switch = True
-                self.controller.anti_windup_trans = np.fromstring(self.anti_windup_trans(), sep = ',')
-                self.get_logger().info("Translationnal anti windup activated", throttle_duration_sec = 1)
-            if self.anti_windup_rot_switch:
-                self.controller.anti_windup_rot_switch = True
-                self.controller.anti_windup_rot = np.fromstring(self.anti_windup_rot(), sep = ',')
-                self.get_logger().info("Rotationnal anti windup activated", throttle_duration_sec = 1)
-            new_pose = Tilthex_Pose()
-            new_pose.position = self.real_pose.position
-            self.controller.desired_pose = new_pose
-        if self.controller.type == Tilthex_Controller_Type.VELOCITY:
-            self.get_logger().info("VELOCITY controller will be available in-flight. GEOMETRIC controller is used to take off and land", throttle_duration_sec = 1)
-            self.controller.m_tot = self.mass()
-            if self.custom_vel_pid_switch:
-                self.controller.PID = Tilthex_PID_Param(np.fromstring(self.vel_pid_trans_p(), sep = ','),
-                                                       np.fromstring(self.vel_pid_trans_i(), sep = ','),
-                                                       np.zeros(3),
-                                                       np.fromstring(self.vel_pid_rot_p(), sep = ','),
-                                                       np.fromstring(self.vel_pid_rot_i(), sep = ','),
-                                                       np.zeros(3))
-                self.get_logger().info("Initilised wit custom PID parameters", throttle_duration_sec = 1)
-            else:
-                self.get_logger().info("Initilised with default PID parameters", throttle_duration_sec = 1)
 
     def spin_motors(self, request, response):
         if not self.experiment_started:
@@ -736,27 +740,69 @@ class TilthexControlCenter(Node):
 
     # State machine
 
-    selected_controller = 0
-
     def controller_selection(self, selection, init = True, reset = False):
+        alpha = self.tilt_angle()*np.pi/180
         do_init = False
         if reset: do_init = True
         if init and self.selected_controller != selection: do_init = True
         match selection:
             case 1:
                 self.selected_controller = 1
-                self.controller = Test_Controller(self)
+                self.controller = Test_Controller(self, alpha = alpha)
                 self.get_logger().info("Experiment starting with TEST controller", throttle_duration_sec = 1)
             case 2:
                 self.selected_controller = 2
-                self.controller = Geometric_Controller(self)
+                self.controller = Geometric_Controller(self, alpha = alpha)
                 self.get_logger().info("Experiment starting with GEOMETRIC controller", throttle_duration_sec = 1)
             case 3:
                 self.selected_controller = 3
-                self.controller = Velocity_Controller(self)
+                self.controller = Velocity_Controller(self, alpha = alpha)
                 self.get_logger().info("Experiment starting with VELOCITY controller", throttle_duration_sec = 1)
         if do_init:
             self.init_controller()
+
+    def init_controller(self):
+        alpha = self.tilt_angle()
+        self.rot_limits = (2/300*alpha**2 + 0.2*alpha - 2)*np.pi/180
+        if self.controller.type == Tilthex_Controller_Type.TEST:
+            pass
+        if self.controller.type == Tilthex_Controller_Type.GEOMETRIC:
+            self.controller.m_tot = self.mass()
+            self.desired_altitude = np.fromstring(self.d_position(), sep=",")[2]
+            if self.custom_geom_pid_switch:
+                self.controller.PID = Tilthex_PID_Param(np.fromstring(self.geom_pid_trans_p(), sep = ','),
+                                                       np.fromstring(self.geom_pid_trans_i(), sep = ','),
+                                                       np.fromstring(self.geom_pid_trans_d(), sep = ','),
+                                                       np.fromstring(self.geom_pid_rot_p(), sep = ','),
+                                                       np.fromstring(self.geom_pid_rot_i(), sep = ','),
+                                                       np.fromstring(self.geom_pid_rot_d(), sep = ','))
+                self.get_logger().info("Initilised wit custom PID parameters", throttle_duration_sec = 1)
+            else:
+                self.get_logger().info("Initilised with default PID parameters", throttle_duration_sec = 1)
+            if self.anti_windup_trans_switch:
+                self.controller.anti_windup_trans_switch = True
+                self.controller.anti_windup_trans = np.fromstring(self.anti_windup_trans(), sep = ',')
+                self.get_logger().info("Translationnal anti windup activated", throttle_duration_sec = 1)
+            if self.anti_windup_rot_switch:
+                self.controller.anti_windup_rot_switch = True
+                self.controller.anti_windup_rot = np.fromstring(self.anti_windup_rot(), sep = ',')
+                self.get_logger().info("Rotationnal anti windup activated", throttle_duration_sec = 1)
+            new_pose = Tilthex_Pose()
+            new_pose.position = self.real_pose.position
+            self.controller.desired_pose = new_pose
+        if self.controller.type == Tilthex_Controller_Type.VELOCITY:
+            self.get_logger().info("VELOCITY controller will be available in-flight. GEOMETRIC controller is used to take off and land", throttle_duration_sec = 1)
+            self.controller.m_tot = self.mass()
+            if self.custom_vel_pid_switch:
+                self.controller.PID = Tilthex_PID_Param(np.fromstring(self.vel_pid_trans_p(), sep = ','),
+                                                       np.fromstring(self.vel_pid_trans_i(), sep = ','),
+                                                       np.zeros(3),
+                                                       np.fromstring(self.vel_pid_rot_p(), sep = ','),
+                                                       np.fromstring(self.vel_pid_rot_i(), sep = ','),
+                                                       np.zeros(3))
+                self.get_logger().info("Initilised wit custom PID parameters", throttle_duration_sec = 1)
+            else:
+                self.get_logger().info("Initilised with default PID parameters", throttle_duration_sec = 1)
 
     def switch_take_off(self):
         if self.controller.type == Tilthex_Controller_Type.VELOCITY:
@@ -766,6 +812,7 @@ class TilthexControlCenter(Node):
         self.take_off_pose.position[2] = self.desired_altitude
         self.controller.desired_pose = self.take_off_pose
         self.taking_off_flag = True
+        self.do_observer = True
         self.get_logger().info("Drone taking off")
 
     def switch_flight(self):
@@ -808,18 +855,12 @@ class TilthexControlCenter(Node):
             self.landing_flag = False
             self.switch_landed()
 
-    t_start_hover = 0.0
-    waiting_for_d_o = False
-
     def flying(self):
         error = np.linalg.norm(self.controller.desired_pose.position - self.real_pose.position)
         if error < 0.05 and self.waiting_for_d_o is False:
             self.t_start_hover = self.time
-            self.waiting_for_d_o = True    
-        if self.time - self.t_start_hover >= 2.0 and self.waiting_for_d_o:
+        if self.time - self.t_start_hover >= 2.0:
             self.flying_flag = False
-            if self.selected_controller == 2:
-                self.controller.do_observer = True
             self.get_logger().info("Drone hovering in default pose")
 
     # Main loop
@@ -827,19 +868,10 @@ class TilthexControlCenter(Node):
     def main_loop(self):
         pass
     
-    max_computed_thrust = 10000.0
-    bat_v = 0.0
-
     def battery_loop(self):
         self.max_computed_thrust = self.max_thrust() - (self. bat_discharge_a()*self.bat_v + self.bat_discharge_b())
 
     # Special actions
-
-
-    vsn_limits_x = [-1.0, 1.0]
-    vsn_limits_y = [-2.0, 2.0]
-    vsn_limits_z = [0.0, 2.7]
-    safe_return = 0.2
     
     def virtual_safety_net(self):
         vsn_trigger = False
@@ -874,8 +906,6 @@ class TilthexControlCenter(Node):
             self.reset_trajectory_client.call_async(Empty.Request())
             self.controller.desired_pose.position = new_pose
             self.controller.desired_pose.rotation = Quaternion()
-
-    rot_limits = 15.0*np.pi/180
 
     def rotation_security(self):
         rot_trigger = False
@@ -920,10 +950,7 @@ class TilthexControlCenter(Node):
                     if not self.landing_flag:
                         self.rotation_security()
                         self.virtual_safety_net()
-                    if self.controller.type == Tilthex_Controller_Type.GEOMETRIC:
-                        control = self.controller.do_control(self.real_pose, self.step_size)
-                    if self.controller.type == Tilthex_Controller_Type.VELOCITY:
-                        control = self.controller.do_control(self.real_pose, self.step_size)
+                    control = self.controller.do_control(self.real_pose, self.step_size)
                     self.direct_motor_control_transfer(control)
 
                     # Debug
@@ -931,6 +958,7 @@ class TilthexControlCenter(Node):
                     self.real_pose_debug()
                     self.desired_pose_debug()
                     self.take_off_pose_debug()
+                    self.tf_checker_debug()
 
 
 def main(args=None):

@@ -9,7 +9,7 @@ from ls2n_drone_tilthex_control.tilthex_common import Tilthex_Pose, Tilthex_Cont
 
 class Tilthex_Controller:
 
-    def __init__(self, node):
+    def __init__(self, node, alpha = np.pi/6):
         self.node = node
         self.type = Tilthex_Controller_Type.NONE
         self.desired_pose = Tilthex_Pose()
@@ -17,7 +17,7 @@ class Tilthex_Controller:
         # Geometry
         self.pi = np.pi
         self.Lx = 0.686/2
-        self.alpha = self.pi/6
+        self.alpha = alpha
         self.g = 9.81
         self.m_tot = 3.3981
         self.I1 = 0.323
@@ -48,7 +48,6 @@ class Tilthex_Controller:
                         + self.clock[i]*self.d*np.reshape(self.B_R_Pi[[i], :, 2], (3, 1))
 
         self.Jb = np.concatenate((self.F, self.H), axis=0)
-
 
     def update_trajectory_setpoint(self, msg):
         euler_vector = np.array([0.0, 0.0, 0.0])
@@ -101,12 +100,63 @@ class Tilthex_Controller:
     def anti_windup(self, _):
         pass
 
+    def translationnal_acceleration_check(self, Acc, real_pose : Tilthex_Pose):
+        Ax = Acc[0]
+        Ay = Acc[1]
+        A_t = np.sqrt(Ax**2+Ay**2)
+        self.a_t = A_t
+        Accel_direction = np.arctan2(Ay, Ax)
+        P = self.g
+
+        # SIMPLE HORIZONTAL SOLUTION (doesn't take into account the orientation of the drone)
+        A_t_M_0 = P*np.tan(self.alpha)
+
+        # Getting the simplified drone tilt angle
+        rotation_matrix = R.from_quat(np.roll(real_pose.rotation.elements, -1)).as_matrix()
+        z_b_0 = rotation_matrix[:, 2]
+        theta = np.arccos(z_b_0[2])
+        self.theta = theta*180/np.pi
+        Tilt_direction = np.arctan2(z_b_0[1], z_b_0[0])
+        self.tilt_direction = Tilt_direction*180/np.pi
+
+        # SIMPLE TILTED SOLUTION (take into account the orientation of the drone, but limit to the smallest acceleration possible)
+        A_t_M_1 = P*np.tan(self.alpha - theta)
+
+        # COMPLEX TILTED SOLUTION (take into account the orientation of the drone, 
+        #                          and adapt the max acceleretation to the orientation direction and the translation direction)
+
+        M = P*np.tan(self.alpha + theta)
+        m = P*np.tan(self.alpha - theta)
+        N = P*np.tan(self.alpha)
+
+        a = (M + m)/2
+        b = N
+        l = b**2/a
+        e = np.sqrt(1-b**2/a**2)
+        def ellipse_radius(angle):
+            return l/(1-e*np.cos(angle))
+        A_t_M_2 = ellipse_radius(Accel_direction - Tilt_direction)
+
+        A_t_M = [A_t_M_0, A_t_M_1, A_t_M_2]
+        selection = 2
+        self.max_accel = A_t_M[selection]
+
+        if A_t > A_t_M[selection]:
+            self.node.get_logger().info("tf_checker triggered", throttle_duration_sec = 1)
+            ratio = A_t_M[selection] / A_t
+            # Acc = Acc*ratio
+            Ax *= ratio
+            Ay *= ratio
+            Acc = np.array([Ax, Ay, Acc[2]])
+
+        return Acc
+
     def joystick_input(self, _):
         pass
 
 class Test_Controller(Tilthex_Controller):
-    def __init__(self, node):
-        super().__init__(node)
+    def __init__(self, node, alpha):
+        super().__init__(node, alpha)
         self.type = Tilthex_Controller_Type.TEST
 
     def do_control(self):
@@ -115,8 +165,8 @@ class Test_Controller(Tilthex_Controller):
 
 class Geometric_Controller(Tilthex_Controller):
 
-    def __init__(self, node):
-        super().__init__(node)
+    def __init__(self, node, alpha):
+        super().__init__(node, alpha)
         self.type = Tilthex_Controller_Type.GEOMETRIC
         
         self.default_pid_param_trans_p = np.array([15.0, 15.0, 10.0])
@@ -147,10 +197,11 @@ class Geometric_Controller(Tilthex_Controller):
         self.pitch_roll_increment = 2.0  # degrees
         self.yaw_increment = 5.0
 
-        # Observer creation
-        self.d_o_initialized = False
-        self.d_o_wait = 0.0
-        self.do_observer = False
+        # Debug
+        self.theta = 0.0
+        self.tilt_direction = 0.0
+        self.a_t = 0.0
+        self.max_accel = 0.0
 
     def integral_reset(self, trans = False, rot = False):
         if trans:
@@ -193,53 +244,6 @@ class Geometric_Controller(Tilthex_Controller):
             self.node.get_logger().info('Rotation about ' + string_axis[axis -  1] + ' of ' + str(direction*self.pitch_roll_increment) + 'degrees')
             self.node.get_logger().info('New desired orientiation is ' + str(new_pose))
 
-    def translationnal_acceleration_check(self, Acc, real_pose : Tilthex_Pose):
-        Ax = Acc[0]
-        Ay = Acc[1]
-        A_t = np.sqrt(Ax**2+Ay**2)
-        Accel_direction = np.arctan2(Ay, Ax)
-        P = self.g
-
-        # SIMPLE HORIZONTAL SOLUTION (doesn't take into account the orientation of the drone)
-        A_t_M_0 = P*np.tan(self.alpha)
-
-        # Getting the simplified drone tilt angle
-        rotation_matrix = R.from_quat(np.roll(real_pose.rotation.elements, -1)).as_matrix()
-        z_b_0 = rotation_matrix[:, 2]
-        theta = np.arccos(z_b_0[2])
-        Tilt_direction = np.arctan2(z_b_0[1], z_b_0[0])
-
-        # SIMPLE TILTED SOLUTION (take into account the orientation of the drone, but limit to the smallest acceleration possible)
-        A_t_M_1 = P*np.tan(self.alpha - theta)
-
-        # COMPLEX TILTED SOLUTION (take into account the orientation of the drone, 
-        #                          and adapt the max acceleretation to the orientation direction and the translation direction)
-
-        M = P*np.tan(self.alpha + theta)
-        m = P*np.tan(self.alpha - theta)
-        N = P*np.tan(self.alpha)
-
-        a = (M + m)/2
-        b = N
-        l = b**2/a
-        e = np.sqrt(1-b**2/a**2)
-        def ellipse_radius(angle):
-            return l/(1-e*np.cos(angle))
-        A_t_M_2 = ellipse_radius(Accel_direction - Tilt_direction)
-
-        A_t_M = [A_t_M_0, A_t_M_1, A_t_M_2]
-        selection = 2
-
-        if A_t > A_t_M[selection]:
-            self.node.get_logger().info("tf_checker triggered", throttle_duration_sec = 1)
-            ratio = A_t_M[selection] / A_t
-            # Acc = Acc*ratio
-            Ax *= ratio
-            Ay *= ratio
-            Acc = np.array([Ax, Ay, Acc[2]])
-
-        return Acc
-
     def do_control(self, real_pose : Tilthex_Pose, step_size : float):
 
         # updates
@@ -267,22 +271,21 @@ class Geometric_Controller(Tilthex_Controller):
         f_B = real_pose.rotation.inverse.rotate(self.Vp*self.m_tot)
         tau_B = np.matmul(self.I, self.Vr)
         self.v_B = np.concatenate((f_B, tau_B))
-        first_time = False
 
-        if self.do_observer and not self.d_o_initialized:
-            self.disturbance_observer = Tilthex_Observer(self.node, self.m_tot, self.I)
-            self.d_o_initialized = True
-            first_time = True
-            self.d_o_wait = self.node.time
+        if self.node.do_observer and not self.node.d_o_initialized:
+            self.node.disturbance_observer = Tilthex_Observer(self.node, self.m_tot, self.I)
+            self.node.d_o_initialized = True
+            self.node.d_o_first_time = True
+            self.node.d_o_wait = self.node.time
             self.node.get_logger().info("Disturbance Observer Initialised")
-        if self.d_o_initialized:
-            if self.do_observer:
-                if self.node.time - self.d_o_wait >= 10.0:
-                    if first_time:
+        if self.node.d_o_initialized:
+            if self.node.do_observer:
+                if self.node.time - self.node.d_o_wait >= 10.0:
+                    if self.node.d_o_first_time:
                         self.node.get_logger().info("Disturbance Observer Active")
-                        first_time = False
-                    self.v_B -= self.disturbance_observer.estimated_wrench
-                self.disturbance_observer.do_observer(real_pose, self.v_B, self.node.time)
+                        self.node.d_o_first_time = False
+                    self.v_B -= self.node.disturbance_observer.estimated_wrench
+                self.node.disturbance_observer.do_observer(real_pose, self.v_B, self.node.time)
                 
                 
 
@@ -298,8 +301,8 @@ class Geometric_Controller(Tilthex_Controller):
     
 class Velocity_Controller(Tilthex_Controller):
     
-    def __init__(self, node):
-        super().__init__(node)
+    def __init__(self, node, alpha):
+        super().__init__(node, alpha)
         self.type = Tilthex_Controller_Type.VELOCITY
 
         self.default_pid_param_trans_p = np.array([2.0, 2.0, 2.0])
@@ -357,12 +360,28 @@ class Velocity_Controller(Tilthex_Controller):
         self.I_e_ang = self.I_e_ang + self.e_ang*step_size
 
         self.Vp = self.PID.Ktp @ self.e_pos + self.PID.Kti @ self.I_e_pos + np.array([0, 0, self.g])
+        self.Vp = self.translationnal_acceleration_check(self.Vp, real_pose)
         self.Vr = self.PID.Krp @ self.e_ang + self.PID.Kri @ self.I_e_ang
 
         # Calc J
         f_B = real_pose.rotation.inverse.rotate(self.Vp*self.m_tot)
         tau_B = np.matmul(self.I, self.Vr)
         self.v_B = np.concatenate((f_B, tau_B))
+
+        if self.node.do_observer and not self.node.d_o_initialized:
+            self.node.disturbance_observer = Tilthex_Observer(self.node, self.m_tot, self.I)
+            self.node.d_o_initialized = True
+            self.node.d_o_first_time = True
+            self.node.d_o_wait = self.node.time
+            self.node.get_logger().info("Disturbance Observer Initialised")
+        if self.node.d_o_initialized:
+            if self.node.do_observer:
+                if self.node.time - self.node.d_o_wait >= 10.0:
+                    if self.node.d_o_first_time:
+                        self.node.get_logger().info("Disturbance Observer Active")
+                        self.node.d_o_first_time = False
+                    self.v_B -= self.node.disturbance_observer.estimated_wrench
+                self.node.disturbance_observer.do_observer(real_pose, self.v_B, self.node.time)
 
         # Calc u
         u = np.matmul(np.linalg.inv(self.Jb), self.v_B)

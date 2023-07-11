@@ -32,3 +32,6 @@
     #BATTERY DISCHARGE
     bat_discharge_a: 0.0
     bat_discharge_b: 0.0
+
+    #ROTOR TILT ANGLE
+    tilt_angle: 60.0
